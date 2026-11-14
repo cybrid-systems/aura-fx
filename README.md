@@ -36,6 +36,19 @@ python3 bridge/fc_adapter.py login    # 只读余额和 EUR/USD，不下单
 
 `login` 拒绝 `FXCM_CONNECTION=Real`。`live` 还会再要 `FXCM_LIVE=1`，并且会把夹具里的单子真正送进 Demo。纸面对账通过之前不要加这个开关。
 
+Demo 账户是对冲模式（`maintenance_type=Y`），反向开仓会变成锁仓。`live` 按净持仓下单：先用 `TRUE_MARKET_CLOSE` + `TRADE_ID` 平掉反向仓位（先开先平），剩下的再用 `TRUE_MARKET_OPEN` 开。
+
+```sh
+python3 bridge/fc_adapter.py live --offline              # 不登录，从空仓打印每笔的平/开计划
+python3 bridge/fc_adapter.py live --dry-run              # 登录读当前持仓，打印计划，一笔不发
+FXCM_LIVE=1 python3 bridge/fc_adapter.py live --max 1    # 先试 1 笔
+FXCM_LIVE=1 python3 bridge/fc_adapter.py live --skip 1 --all   # 再跑剩下 62 笔
+```
+
+发单必须带 `--max N` 或 `--all`。休市时（纽约时间周五 17:00 到周日 17:15，约北京时间周六 06:00 到周一 06:15）FXCM 拒单，`live` 看到报价 `trading_status` 不是 `O`，或报价时间超过 5 分钟没动，就打印 `MARKET_CLOSED`，不发单。周六实测 Demo 报价仍显示 `trading_status=O`，只有报价时间停在周五收盘，所以要看报价时间。某一笔被拒或没成交就停在那一笔，并打印已完成几笔。
+
+登录超时（`Wait timeout exceeded`）会换一个新会话重试，最多 3 次。这个错误说明会话在 SDK 写死的 30 秒内没到 `CONNECTED`，不是密码错（密码错会直接报 FXCM 的原因，不重试）。在本机上，进程里第一个会话要约 72 秒才连上，登出后第二次一般就能连上。三次都失败时会打印 Hosts.jsp 给出的 Demo 交易服务器地址和探测结果。
+
 ## 这台机器
 
 当前主机是 aarch64。`forexconnect` 没有 aarch64 轮子，FXCM 的 Linux SDK 是 x86_64，所以这里登不上 Demo。纸面管道可以跑。登录要到 x86_64，并且在 Python 3.7 里 `pip install forexconnect` 成功之后。x86_64 + Python 3.7 + https 地址已实测登上 Demo（只读 `login` 输出 `LOGIN_OK`）。
@@ -76,6 +89,6 @@ python3 bridge/fc_adapter.py login    # 只读余额和 EUR/USD，不下单
 | `main.aura` | 写出 `out/session.json` |
 | `advantage.aura` | SBS / VBS / 整段盈亏 |
 | `hot.aura` | 一条规则的 swap / heal |
-| `bridge/fc_adapter.py` | probe、login、paper、live |
+| `bridge/fc_adapter.py` | probe、login、paper、live（含 --offline / --dry-run） |
 
-订单字段对齐 ForexConnect 的 `create_order_request`：`order_type=OM`（`TRUE_MARKET_OPEN`）、`buy_sell` 为 `B` 或 `S`、`amount` 已经是基础货币单位。live 路径把品种解析成 `SYMBOL`，不会再乘一次 `base_unit_size`。
+订单字段对齐 ForexConnect 的 `create_order_request`：`order_type=OM`（`TRUE_MARKET_OPEN`）、`buy_sell` 为 `B` 或 `S`、`amount` 已经是基础货币单位。live 路径按品种在 OFFERS 里找报价（`Common.get_offer` 会跳过订阅状态不是 `T` 的报价），不会再乘一次 `base_unit_size`。
