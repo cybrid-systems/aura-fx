@@ -27,6 +27,8 @@ bash scripts/pipe.sh
 
 Demo 登录不在这个脚本里。账号放在 `.env`（从 `.env.example` 复制），`.env` 不进 git。
 
+forexconnect 只有 cp35–cp37 的 manylinux x86_64 轮子，要用 Python 3.7（例如 conda-forge 的 `python=3.7`），再装 `forexconnect "numpy<1.22" "pandas<1.4"`。`FXCM_URL` 必须是 `https://www.fxcorporate.com/Hosts.jsp`：走 http 时 Hosts.jsp 返回 500，登录报 ORA-499。
+
 ```sh
 python3 bridge/fc_adapter.py probe    # 看本机能不能加载 forexconnect
 python3 bridge/fc_adapter.py login    # 只读余额和 EUR/USD，不下单
@@ -36,7 +38,7 @@ python3 bridge/fc_adapter.py login    # 只读余额和 EUR/USD，不下单
 
 ## 这台机器
 
-当前主机是 aarch64。`forexconnect` 没有 aarch64 轮子，FXCM 的 Linux SDK 是 x86_64，所以这里登不上 Demo。纸面管道可以跑。登录要到 x86_64，并且 `pip install forexconnect` 成功之后。
+当前主机是 aarch64。`forexconnect` 没有 aarch64 轮子，FXCM 的 Linux SDK 是 x86_64，所以这里登不上 Demo。纸面管道可以跑。登录要到 x86_64，并且在 Python 3.7 里 `pip install forexconnect` 成功之后。x86_64 + Python 3.7 + https 地址已实测登上 Demo（只读 `login` 输出 `LOGIN_OK`）。
 
 ## 夹具上量到的差距
 

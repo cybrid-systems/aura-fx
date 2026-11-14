@@ -174,7 +174,7 @@ def cmd_login(_args):
     if not user or not password:
         print("login blocked: set FXCM_USER and FXCM_PASSWORD")
         return 2
-    url = os.environ.get("FXCM_URL", "www.fxcorporate.com/Hosts.jsp")
+    url = os.environ.get("FXCM_URL", "https://www.fxcorporate.com/Hosts.jsp")
     try:
         from forexconnect import ForexConnect
     except Exception as exc:
@@ -204,7 +204,7 @@ def cmd_live(args):
     if not user or not password:
         print("live submit blocked: set FXCM_USER and FXCM_PASSWORD")
         return 2
-    url = os.environ.get("FXCM_URL", "www.fxcorporate.com/Hosts.jsp")
+    url = os.environ.get("FXCM_URL", "https://www.fxcorporate.com/Hosts.jsp")
     connection = demo_only()
     if connection is None:
         return 2
