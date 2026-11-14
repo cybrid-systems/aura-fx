@@ -1,0 +1,111 @@
+;; Window metrics: Sharpe, max drawdown, and a deflated Sharpe that
+;; charges for every candidate the search tried.
+;;
+;; Deflated Sharpe (Bailey & Lopez de Prado, 2014):
+;;   SR0 = sqrt(V) * ((1 - g) * Z(1 - 1/N) + g * Z(1 - 1/(N e)))
+;; is the Sharpe the best of N worthless candidates would show, where V
+;; is the variance of the N candidates' Sharpe ratios and g is the
+;; Euler-Mascheroni constant. "deflated" here is SR - SR0: above zero
+;; means the out-of-sample Sharpe beats what luck over N tries explains.
+;; "dsr" is the probability form, Phi((SR - SR0) sqrt(T - 1) / s) with
+;; s^2 = 1 - skew SR + (kurt - 1) / 4 SR^2.
+;;
+;; Sharpe is per 40-bar window, not annualised.
+
+(define (m-sum xs) (let loop ((ys xs) (s 0.0)) (if (null? ys) s (loop (cdr ys) (+ s (car ys))))))
+(define (m-mean xs) (if (null? xs) 0.0 (/ (m-sum xs) (length xs))))
+(define (m-var xs)
+  (if (< (length xs) 2) 0.0
+    (let ((m (m-mean xs)))
+      (/ (m-sum (map (lambda (x) (* (- x m) (- x m))) xs)) (- (length xs) 1)))))
+(define (m-sd xs) (sqrt (m-var xs)))
+
+(define (m-sharpe xs)
+  (let ((sd (m-sd xs)))
+    (if (< sd 1e-12) 0.0 (/ (m-mean xs) sd))))
+
+;; population skew and (non-excess) kurtosis
+(define (m-moment xs k)
+  (let ((m (m-mean xs)))
+    (m-mean (map (lambda (x) (expt (- x m) k)) xs))))
+(define (m-skew xs)
+  (let ((s2 (m-moment xs 2)))
+    (if (< s2 1e-18) 0.0 (/ (m-moment xs 3) (expt s2 1.5)))))
+(define (m-kurt xs)
+  (let ((s2 (m-moment xs 2)))
+    (if (< s2 1e-18) 3.0 (/ (m-moment xs 4) (* s2 s2)))))
+
+;; max drawdown of the running sum of xs
+(define (m-max-dd xs)
+  (let loop ((ys xs) (eq 0.0) (peak 0.0) (dd 0.0))
+    (if (null? ys) dd
+      (let* ((e (+ eq (car ys)))
+             (p (if (> e peak) e peak))
+             (d (- p e)))
+        (loop (cdr ys) e p (if (> d dd) d dd))))))
+
+;; Phi via erf (Abramowitz & Stegun 7.1.26, |err| < 1.5e-7)
+(define (m-erf x)
+  (let* ((s (if (< x 0.0) -1.0 1.0))
+         (a (abs x))
+         (t (/ 1.0 (+ 1.0 (* 0.3275911 a))))
+         (y (- 1.0 (* (+ (* (+ (* (+ (* (+ (* 1.061405429 t) -1.453152027) t)
+                                         1.421413741) t) -0.284496736) t)
+                          0.254829592) t (exp (- (* a a)))))))
+    (* s y)))
+(define (m-phi x) (* 0.5 (+ 1.0 (m-erf (/ x (sqrt 2.0))))))
+
+;; Phi^-1 (Acklam's rational approximation, |rel err| < 1.2e-9)
+(define (m-ppf p)
+  (let ((a1 -39.69683028665376) (a2 220.9460984245205) (a3 -275.9285104469687)
+        (a4 138.3577518672690) (a5 -30.66479806614716) (a6 2.506628277459239)
+        (b1 -54.47609879822406) (b2 161.5858368580409) (b3 -155.6989798598866)
+        (b4 66.80131188771972) (b5 -13.28068155288572)
+        (c1 -0.007784894002430293) (c2 -0.3223964580411365) (c3 -2.400758277161838)
+        (c4 -2.549732539343734) (c5 4.374664141464968) (c6 2.938163982698783)
+        (d1 0.007784695709041462) (d2 0.3224671290700398) (d3 2.445134137142996)
+        (d4 3.754408661907416) (plow 0.02425))
+    (cond
+      ((<= p 0.0) -1e9)
+      ((>= p 1.0) 1e9)
+      ((< p plow)
+       (let ((q (sqrt (* -2.0 (log p)))))
+         (/ (+ (* (+ (* (+ (* (+ (* (+ (* c1 q) c2) q) c3) q) c4) q) c5) q) c6)
+            (+ (* (+ (* (+ (* (+ (* d1 q) d2) q) d3) q) d4) q) 1.0))))
+      ((> p (- 1.0 plow))
+       (let ((q (sqrt (* -2.0 (log (- 1.0 p))))))
+         (- (/ (+ (* (+ (* (+ (* (+ (* (+ (* c1 q) c2) q) c3) q) c4) q) c5) q) c6)
+               (+ (* (+ (* (+ (* (+ (* d1 q) d2) q) d3) q) d4) q) 1.0)))))
+      (else
+       (let* ((q (- p 0.5)) (r (* q q)))
+         (/ (* (+ (* (+ (* (+ (* (+ (* (+ (* a1 r) a2) r) a3) r) a4) r) a5) r) a6) q)
+            (+ (* (+ (* (+ (* (+ (* (+ (* b1 r) b2) r) b3) r) b4) r) b5) r) 1.0)))))))
+
+(define M-EULER 0.5772156649015329)
+
+;; Expected max Sharpe of n candidates with Sharpe variance v under the null.
+(define (m-sr0 n v)
+  (if (or (< n 2) (<= v 0.0)) 0.0
+    (* (sqrt v)
+       (+ (* (- 1.0 M-EULER) (m-ppf (- 1.0 (/ 1.0 n))))
+          (* M-EULER (m-ppf (- 1.0 (/ 1.0 (* n (exp 1.0))))))))))
+
+;; oos: the kept candidate's out-of-sample window pnl.
+;; trial-srs: the Sharpe of every candidate the search scored.
+(define (m-deflated oos trial-srs)
+  (let* ((sr (m-sharpe oos))
+         (n (length trial-srs))
+         (v (m-var trial-srs))
+         (sr0 (m-sr0 n v))
+         (t (length oos))
+         (g3 (m-skew oos))
+         (g4 (m-kurt oos))
+         (den2 (+ (- 1.0 (* g3 sr)) (* (/ (- g4 1.0) 4.0) sr sr)))
+         (den (sqrt (if (< den2 1e-9) 1e-9 den2)))
+         (z (if (< t 2) 0.0 (/ (* (- sr sr0) (sqrt (- t 1))) den))))
+    (hash "sr" sr "sr0" sr0 "deflated" (- sr sr0) "dsr" (m-phi z)
+          "trials" n "sr-var" v "windows" t)))
+
+(define (m-round x k)
+  (let ((f (expt 10.0 k)))
+    (/ (round (* x f)) f)))

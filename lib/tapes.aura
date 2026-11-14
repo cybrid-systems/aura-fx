@@ -1,0 +1,162 @@
+;; Seeded synthetic EUR/USD tapes for walk-forward tests.
+;;
+;; A tape is 8 segments of 40 bars. Each segment is one regime. A regime
+;; stays for the next segment with probability 0.6, otherwise one of the
+;; other two is drawn. Every draw comes from (seed, tape, segment) with
+;; std/evo-core's evo:rng, so the same seed always gives the same bytes:
+;;   up     drift +2..5 pips/bar, noise 1..3 pips
+;;   down   drift -2..5 pips/bar
+;;   range  triangle wave, amplitude 8..20 pips, period 8/10/12/16, noise 1..3 pips
+;; Segments join without gaps. This is a fixture, not a market replay.
+;;
+;; The tape is a hash of vectors. slope and chop are the same features
+;; as lib/signal (16 bars), precomputed per bar so a rule is O(1) per bar.
+
+(require "std/evo-core" all:)
+
+(define TAPE-SEG 40)
+(define TAPE-SEGS 8)
+
+(define (tape-noise r sd)
+  ;; sum of four uniforms, centred: close enough to a normal, deterministic
+  (* sd (- (+ (evo:rng-float! r) (evo:rng-float! r)
+              (evo:rng-float! r) (evo:rng-float! r))
+           2.0)))
+
+(define (tape-regime-name k)
+  (cond ((= k 0) "up") ((= k 1) "range") (else "down")))
+
+(define (tape-tri k period)
+  ;; triangle wave in [-1, 1]
+  (let* ((ph (modulo k period))
+         (half (/ period 2.0))
+         (x (/ (* 1.0 ph) half)))
+    (if (< ph half) (- (* 2.0 x) 1.0) (- 3.0 (* 2.0 x)))))
+
+;; Returns (prices-reversed . last-price) for one segment.
+(define (tape-segment r regime start acc)
+  (let ((drift (+ 2.0 (* 3.0 (evo:rng-float! r))))
+        (sd (+ 1.0 (* 2.0 (evo:rng-float! r))))
+        (amp (+ 8.0 (* 12.0 (evo:rng-float! r))))
+        (period (list-ref (list 8 10 12 16) (evo:rng-int! r 0 3))))
+    (let loop ((k 0) (p start) (acc acc))
+      (if (>= k TAPE-SEG) (cons acc p)
+        (let ((np (cond
+                    ((string=? regime "up")
+                     (+ p (* 0.0001 (+ drift (tape-noise r sd)))))
+                    ((string=? regime "down")
+                     (+ p (* 0.0001 (- (tape-noise r sd) drift))))
+                    (else
+                     (+ start (* 0.0001 (+ (* amp (tape-tri (+ k 1) period))
+                                           (tape-noise r sd))))))))
+          (loop (+ k 1) np (cons np acc)))))))
+
+;; evo:rng mixes (seed, gen, slot) affinely, so the first draws of
+;; neighbouring streams form an arithmetic progression and small-range
+;; draws repeat in a pattern. The stream seed here is a product of the
+;; three (not affine in any one of them), and it is stepped 8 times.
+(define (tape-rng seed idx s)
+  (let ((r (evo:rng (modulo (* (modulo (* (+ seed 101) (+ idx 7919)) 2147483647) (+ s 104729))
+                            2147483647)
+                    idx s)))
+    (let loop ((k 0)) (if (< k 8) (begin (evo:rng-next! r) (loop (+ k 1))) r))))
+
+(define (tape-prices seed idx)
+  (let loop ((s 0) (p 1.10000) (acc (list)) (regs (list)) (last -1))
+    (if (>= s TAPE-SEGS)
+      (cons (reverse acc) (reverse regs))
+      (let* ((r (tape-rng seed idx s))
+             (k (cond ((< last 0) (evo:rng-int! r 0 2))
+                      ((< (evo:rng-float! r) 0.6) last)
+                      (else (modulo (+ last (evo:rng-int! r 1 2)) 3))))
+             (regime (tape-regime-name k))
+             (seg (tape-segment r regime p acc)))
+        (loop (+ s 1) (cdr seg) (car seg) (cons regime regs) k)))))
+
+(define (tape-sgn x) (cond ((> x 0.0) 1) ((< x 0.0) -1) (else 0)))
+
+;; prefix sums: psum[k] = px[0] + ... + px[k-1]
+(define (tape-psum px n)
+  (let ((v (make-vector (+ n 1) 0.0)))
+    (let loop ((k 0) (s 0.0))
+      (if (> k n) v
+        (begin
+          (vector-set! v k s)
+          (loop (+ k 1) (if (< k n) (+ s (vector-ref px k)) s)))))))
+
+;; sign changes among the 16 one-bar deltas ending at i (lib/signal chop-count)
+(define (tape-chop-at px i)
+  (if (< i 17) 0.0
+    (let loop ((k (- i 15)) (prev 0) (c 0))
+      (if (> k i) (* 1.0 c)
+        (let ((d (tape-sgn (- (vector-ref px k) (vector-ref px (- k 1))))))
+          (loop (+ k 1)
+                (if (= d 0) prev d)
+                (if (and (not (= d 0)) (not (= prev 0)) (not (= d prev)))
+                  (+ c 1) c)))))))
+
+(define (tape-build id regimes prices)
+  (let* ((px (list->vector prices))
+         (n (vector-length px))
+         (chop (make-vector n 0.0))
+         (slope (make-vector n 0.0)))
+    (let loop ((i 0))
+      (if (< i n)
+        (begin
+          (vector-set! chop i (tape-chop-at px i))
+          (vector-set! slope i
+                       (if (< i 16) 0.0
+                         (* 10000.0 (- (vector-ref px i) (vector-ref px (- i 16))))))
+          (loop (+ i 1)))
+        #t))
+    (hash "id" id "n" n "px" px "psum" (tape-psum px n)
+          "chop" chop "slope" slope "regimes" regimes)))
+
+(define (make-tape seed idx)
+  (let ((pr (tape-prices seed idx)))
+    (tape-build (string-append "s" (number->string seed) "-t" (number->string idx))
+                (cdr pr) (car pr))))
+
+(define (make-tapes seed k)
+  (let loop ((i 0) (acc (list)))
+    (if (>= i k) (reverse acc) (loop (+ i 1) (cons (make-tape seed i) acc)))))
+
+;; The original 240-bar fixture as a tape (lib/tape), for the live loop.
+(define (tape-from-list id prices)
+  (tape-build id (list "fixture") prices))
+
+;; Accessors used by rules. A rule may only read bars <= i.
+(define (tape-n t) (hash-ref t "n"))
+(define (tape-px t i) (vector-ref (hash-ref t "px") i))
+(define (tape-sma t i n)
+  (let ((ps (hash-ref t "psum")))
+    (/ (- (vector-ref ps (+ i 1)) (vector-ref ps (+ (- i n) 1))) n)))
+(define (tape-chop t i) (vector-ref (hash-ref t "chop") i))
+(define (tape-slope t i) (vector-ref (hash-ref t "slope") i))
+(define (tape-hi t i n)
+  ;; max of the n bars before i (i excluded)
+  (let ((px (hash-ref t "px")))
+    (let loop ((k (- i n)) (m (vector-ref px (- i n))))
+      (if (>= k i) m (loop (+ k 1) (if (> (vector-ref px k) m) (vector-ref px k) m))))))
+(define (tape-lo t i n)
+  (let ((px (hash-ref t "px")))
+    (let loop ((k (- i n)) (m (vector-ref px (- i n))))
+      (if (>= k i) m (loop (+ k 1) (if (< (vector-ref px k) m) (vector-ref px k) m))))))
+
+;; Window w of a tape covers bars [40w, 40w+40). Its id is a task id.
+(define (win t w)
+  (hash "id" (string-append (hash-ref t "id") "-w" (number->string w))
+        "tape" t "w" w "from" (* w TAPE-SEG) "to" (* (+ w 1) TAPE-SEG)
+        "regime" (list-ref (hash-ref t "regimes") w)))
+
+(define (wins tapes ws)
+  (let loop ((ts tapes) (acc (list)))
+    (if (null? ts) (reverse acc)
+      (loop (cdr ts)
+            (append (reverse (map (lambda (w) (win (car ts) w)) ws)) acc)))))
+
+;; Features a selector may use for window w: measured at the last bar
+;; BEFORE the window opens, so there is no look-ahead.
+(define (win-features wn)
+  (let ((t (hash-ref wn "tape")) (i (- (hash-ref wn "from") 1)))
+    (hash "slope" (tape-slope t i) "chop" (tape-chop t i))))

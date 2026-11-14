@@ -1,0 +1,37 @@
+;; Portfolio members as (name . code) pairs. Code is the text a hot swap
+;; installs as rule-entry; the closure is built from the same numbers.
+
+(require "lib/engine")
+
+(define (member-rule code-or-params)
+  code-or-params)
+
+;; name, kind, params. kind "switch" uses rule-switch, "breakout" rule-breakout.
+(define (switch-member name params) (hash "name" name "kind" "switch" "params" params))
+(define (breakout-member name n) (hash "name" name "kind" "breakout" "params" (list n)))
+
+(define (member-closure m)
+  (if (string=? (hash-ref m "kind") "breakout")
+    (let ((n (car (hash-ref m "params"))))
+      (lambda (t i prev) (rule-breakout t i prev n 1)))
+    (params-rule (hash-ref m "params"))))
+
+(define (member-code m)
+  (if (string=? (hash-ref m "kind") "breakout")
+    (string-append "(lambda (t i prev) (rule-breakout t i prev "
+                   (number->string (car (hash-ref m "params"))) " 1))")
+    (params-code (hash-ref m "params"))))
+
+;; The three members the repo shipped, on tapes: trend never fades
+;; (chop switch 99), meanrev always fades (switch 0), breakout 12 bars.
+(define (shipped-members)
+  (list (switch-member "trend" (list 8 2.5 6.0 99))
+        (switch-member "meanrev" (list 8 2.5 6.0 0))
+        (breakout-member "breakout" 12)))
+
+(define (member->json m)
+  (hash "name" (hash-ref m "name") "kind" (hash-ref m "kind")
+        "params" (hash-ref m "params") "code" (member-code m)))
+
+(define (json->member h)
+  (hash "name" (hash-ref h "name") "kind" (hash-ref h "kind") "params" (hash-ref h "params")))

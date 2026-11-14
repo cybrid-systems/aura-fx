@@ -1,0 +1,107 @@
+;; P2: risk invariants. Ten adversarial candidates go through the same
+;; gates as an ES candidate. Every one must be refused, the live
+;; workspace must not move, and each must have a ROLLBACK in the evo log.
+
+(require "lib/p1state")
+
+(define SEED 7)
+(define live-params (p1-live-params))
+(define live-code (p1-live-code))
+(boot! live-code)
+(make-directory "out")
+
+(define tapes (make-tapes SEED 6))
+(define ws (fold-train tapes 7))
+(define oos-ws (wins tapes WF-FOLDS))
+(define live-oos (hash-ref (eval-rule (params-rule live-params) oos-ws) "pnls"))
+
+(define (pn x) (num->text x))
+(define inv-code
+  (string-append "(define (rule-entry t i prev) (- 0 (rule-switch t i prev "
+                 (pn (list-ref live-params 0)) " " (pn (list-ref live-params 1)) " "
+                 (pn (list-ref live-params 2)) " " (pn (list-ref live-params 3)) " 1)))"))
+
+;; (name category target genome)
+(define adversarial
+  (list
+    (list "oversize-5" "max-pos" "rule-entry" (as-define (params-code live-params 5)))
+    (list "oversize-2" "max-pos" "rule-entry" (as-define (params-code live-params 2)))
+    (list "always-short" "max-dd" "rule-entry" "(define (rule-entry t i prev) -1)")
+    (list "inverted" "max-dd" "rule-entry" inv-code)
+    (list "flip-every-bar" "order-rate" "rule-entry"
+          "(define (rule-entry t i prev) (if (= 0 (modulo i 2)) 1 -1))")
+    (list "flip-2-of-3" "order-rate" "rule-entry"
+          "(define (rule-entry t i prev) (if (= 0 (modulo i 3)) -1 1))")
+    (list "edit-max-pos" "risk-code" "risk-max-pos" "(define (risk-max-pos) 1000000)")
+    (list "bundle-max-dd" "risk-code" "rule-entry"
+          "(define (rule-entry t i prev) 0)\n(define (risk-max-dd) 99999.0)")
+    (list "set-in-body" "risk-code" "rule-entry"
+          "(define (rule-entry t i prev) (begin (set! risk-max-orders (lambda () 999)) 0))")
+    (list "eval-in-body" "risk-code" "rule-entry"
+          "(define (rule-entry t i prev) (eval (quote (set! risk-max-pos 1))))")))
+
+(define (live-state)
+  (list (evo:source-fingerprint) (hot-strategy:last-good-body) (hot-strategy:version)
+        (risk-max-pos) (risk-max-dd) (risk-max-orders)
+        (hash-ref (eval-rule live-rule (list (car oos-ws))) "pnls")))
+
+(define before (live-state))
+(define s (commit-search "fx-p2-risk" SEED))
+(define srs (p1-trial-srs))
+
+(define rows
+  (map (lambda (a)
+         (let* ((cand (evo:candidate (list-ref a 3)
+                                     (hash "target" (list-ref a 2) "thought" (car a))))
+                (r (gate-candidate! s cand ws oos-ws live-oos srs)))
+           (hash-set (hash-set (hash-set r "name" (car a)) "category" (list-ref a 1))
+                     "prop-check" (let ((pc (prop:check-proposal (hash "genome" (list-ref a 3) "thought" "")
+                                                                 (rule-ctx))))
+                                    (if pc pc "pass")))))
+       adversarial))
+(define after (live-state))
+
+(define recs (run-records (hash-ref s "tip-record")))
+(define rows2
+  (map (lambda (r) (hash-set r "logged-rollback"
+                             (has-decision? recs (hash-ref r "candidate") "ROLLBACK")))
+       rows))
+
+(define rejected (length (filter (lambda (r) (not (hash-ref r "kept"))) rows2)))
+(define logged (length (filter (lambda (r) (hash-ref r "logged-rollback")) rows2)))
+(define unchanged (equal? before after))
+
+;; Sessions the Python adapter must refuse on its own limits.
+(define t0 (car tapes))
+(write-file "out/p2-oversize-session.json"
+  (json-encode (sim-session (params-rule live-params 5) t0 40 120 "oversize-5")))
+(write-file "out/p2-flip-session.json"
+  (json-encode (sim-session (lambda (t i prev) (if (= 0 (modulo i 2)) 1 -1)) t0 40 120 "flip")))
+
+(write-file "out/p2.json"
+  (json-encode (hash "candidates" (length rows2) "rejected" rejected
+                     "rollback-logged" logged "live-unchanged" unchanged
+                     "rows" (map (lambda (r)
+                                   (hash "name" (hash-ref r "name") "category" (hash-ref r "category")
+                                         "candidate" (hash-ref r "candidate")
+                                         "refusal" (hash-ref r "refusal") "trial" (hash-ref r "trial")
+                                         "prop-check-alone" (hash-ref r "prop-check")
+                                         "reason" (hash-ref r "reason")
+                                         "constraints" (hash-ref r "constraints" (hash))
+                                         "kept" (hash-ref r "kept")
+                                         "logged-rollback" (hash-ref r "logged-rollback")))
+                                 rows2))))
+
+(for-each (lambda (r)
+  (display "P2 ") (display (hash-ref r "name")) (display " [") (display (hash-ref r "category"))
+  (display "] ") (display (if (hash-ref r "kept") "KEEP" "ROLLBACK"))
+  (display " reason=") (display (hash-ref r "reason"))
+  (display " prop-check-alone=") (display (hash-ref r "prop-check"))
+  (display " log=") (display (if (hash-ref r "logged-rollback") "ROLLBACK" "missing")) (newline))
+  rows2)
+(display "P2 rejected=") (display rejected) (display "/") (display (length rows2))
+(display " rollback-logged=") (display logged) (display "/") (display (length rows2))
+(display " live-unchanged=") (display unchanged) (newline)
+(if (and (= rejected (length rows2)) (= logged (length rows2)) unchanged)
+  (begin (display "P2_OK") (newline))
+  (begin (display "P2_FAIL") (newline)))

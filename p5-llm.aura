@@ -1,0 +1,238 @@
+;; P5: an LLM proposes rule STRUCTURES, offline only.
+;;
+;; MiniMax-M3.1-Flash through std/llm llm:chat (reasoning_effort minimal,
+;; --grant net). Each proposal is Aura code for rule-entry. It goes
+;; through exactly the gates an ES candidate goes through
+;; (gate-candidate!: prop:check-proposal limited to rule-* defines with
+;; the risk defines protected, the body guard, evo:trial in a child
+;; worldline, the risk constraints, tune:gate + deflated Sharpe, then
+;; evo:commit!). Pure ES gets the same budget on the same windows.
+;; The LLM also writes a short review of P4's audit. Nothing here runs
+;; per bar. The key is read by std/llm from LLM_API_KEY; this file never
+;; touches it.
+
+(require "lib/p1state")
+(require "std/llm" all:)
+(require "std/list" all:)
+(require "std/fs" all:)
+
+(define SEED 7)
+(define BUDGET 12)
+(define ROUNDS 4)
+(define PER-ROUND 3)
+
+(boot! (p1-live-code))
+(make-directory "out")
+(llm:call-stats-reset!)
+(llm:rate-limit-set! 20)
+
+(define tapes (make-tapes SEED 6))
+(define train (wins tapes (list 1 2 3 4)))
+(define test (wins tapes (list 5 6 7)))
+(define base-oos (hash-ref (eval-rule (params-rule BASE-PARAMS) test) "pnls"))
+(define base-train (hash-ref (eval-rule (params-rule BASE-PARAMS) train) "sum"))
+
+;; ── LLM transport with our own counters (llm:call-stats does not count
+;; success/fail for llm:chat on this nightly) ──
+(define calls (list))
+(define (ask sys usr max-tokens)
+  (let* ((t0 (monotonic-ms))
+         (r (llm:chat sys usr (hash "reasoning_effort" "minimal" "max_tokens" max-tokens) 90))
+         (ms (- (monotonic-ms) t0))
+         (ok (eq? (hash-ref r "ok" #f) #t)))
+    (set! calls (cons (hash "ms" ms "ok" ok "error" (if ok "" (hash-ref r "error" "?"))) calls))
+    (if ok (hash-ref r "content" "") #f)))
+
+;; Pull every balanced "(define (rule-entry ...) ...)" out of a reply.
+(define (balanced-end s start)
+  (let loop ((k start) (depth 0))
+    (if (>= k (string-length s)) -1
+      (let ((c (string-ref s k)))
+        (cond ((char=? c #\() (loop (+ k 1) (+ depth 1)))
+              ((char=? c #\)) (if (= depth 1) (+ k 1) (loop (+ k 1) (- depth 1))))
+              (else (loop (+ k 1) depth)))))))
+
+(define (extract-defines s)
+  (let loop ((from 0) (acc (list)))
+    (let ((k (string-index s "(define (rule-entry" from)))
+      (if (or (not k) (< k 0)) (reverse acc)
+        (let ((e (balanced-end s k)))
+          (if (< e 0) (reverse acc)
+            (loop e (cons (substring s k e) acc))))))))
+
+(define SYS
+  (string-append
+    "You write one trading rule for a EUR/USD bar simulator, in Aura (a Scheme). "
+    "Signature: (define (rule-entry t i prev) BODY). It returns the target position in lots "
+    "as an exact integer -1, 0 or 1. t is the tape, i the current bar, prev the rule's last output. "
+    "Read only bars <= i. Helpers (all pure): (tape-px t i) mid price; (tape-sma t i n) mean of the last n mids; "
+    "(tape-slope t i) pips moved over the last 16 bars; (tape-chop t i) direction changes in the last 16 bars (0-15); "
+    "(tape-hi t i n) / (tape-lo t i n) high / low of the n bars before i; "
+    "(rule-switch t i prev n trend-pips fade-pips chop-split 1) the current rule: follow price vs SMA(n) "
+    "past trend-pips when chop < chop-split, else fade it past fade-pips. "
+    "Use n between 4 and 24. Price differences are tiny: multiply by 10000.0 to get pips. "
+    "Allowed forms: define, let, let*, if, cond, and, or, arithmetic, comparisons, abs, min, max. "
+    "Do not use set!, eval, or any name starting with risk-. Do not define anything other than rule-entry. "
+    "Each bar a position change pays 0.8 pip of spread. Answer with code only, no prose."))
+
+(define (fmt-hist hist)
+  (if (null? hist) "none yet"
+    (apply string-append
+           (map (lambda (h) (string-append "\n; train-pnl " (number->string (m-round (hash-ref h "train") 1))
+                                           (if (hash-ref h "refusal") (string-append " REFUSED " (hash-ref h "refusal")) "")
+                                           "\n" (hash-ref h "genome")))
+                hist))))
+
+(define (round-prompt hist)
+  (string-append
+    "Shipped rule: (rule-switch t i prev 8 2.5 6.0 8 1), train pnl "
+    (number->string (m-round base-train 1))
+    " over 24 windows of 40 bars (trend up, range, trend down regimes). "
+    "Earlier proposals and their train pnl:" (fmt-hist hist)
+    "\nPropose " (number->string PER-ROUND)
+    " NEW rules with a different structure that should earn more on train without big drawdowns. "
+    "Write each as a separate (define (rule-entry t i prev) ...)."))
+
+;; ── the shared gate path ──
+(define s-llm (commit-search "fx-p5-llm" SEED))
+(define s-es (commit-search "fx-p5-es" SEED))
+
+(define (measure genome thought)
+  (measure-candidate (evo:candidate genome (hash "target" "rule-entry" "thought" thought)) train test))
+
+;; Both arms are gated in batches of PER-ROUND, in proposal order. The
+;; deflated Sharpe is charged for every candidate the arm has measured so
+;; far (trials grow 3, 6, 9, 12). Batching is also the workaround for an
+;; Aura issue: after 3 evo:trial calls without an evo:commit! in between,
+;; getenv (and so llm:chat) is denied io-read until the next commit.
+(define (decide-batch s ms prior)
+  (let ((srs (map (lambda (m) (hash-ref m "train-sharpe"))
+                  (filter (lambda (m) (hash-ref m "ok")) (append prior ms)))))
+    (map (lambda (m) (decide-candidate! s m base-oos srs)) ms)))
+
+(define (io-read-ok?) (try (begin (getenv "HOME") #t) (catch (e) #f)))
+(define denied-before-ask 0)
+
+;; ES: 12 candidates on train (pop 4, 3 generations), no fibers.
+(define t-es0 (monotonic-ms))
+(define es-run (run-search "es" (+ (* SEED 1000) 55) BUDGET 4 (fit-genome train) map))
+(define es-ms (map (lambda (h) (measure (params-code (hash-ref h "params")) "es"))
+                   (hash-ref es-run "history")))
+(define es-rows
+  (let loop ((ms es-ms) (prior (list)) (rows (list)))
+    (if (null? ms) rows
+      (let ((batch (take ms (min PER-ROUND (length ms)))))
+        (loop (drop ms (length batch)) (append prior batch)
+              (append rows (decide-batch s-es batch prior)))))))
+(define t-es1 (monotonic-ms))
+
+;; LLM: ROUNDS rounds of PER-ROUND proposals; each round sees the earlier
+;; proposals and their train pnl (measured in a child worldline).
+(define t-llm0 (monotonic-ms))
+(define llm-rows (list))
+(define llm-ms
+  (let loop ((r 0) (acc (list)))
+    (if (or (>= r ROUNDS) (>= (length acc) BUDGET)) acc
+      (let* ((hist (map (lambda (m) (hash "genome" (evo:candidate-genome (hash-ref m "cand"))
+                                          "train" (hash-ref m "train-sum" 0.0)
+                                          "refusal" (hash-ref m "refusal")))
+                        acc))
+             (_ (if (io-read-ok?) #f (set! denied-before-ask (+ denied-before-ask 1))))
+             (reply (ask SYS (round-prompt hist) 1500))
+             (gs (if reply (extract-defines reply) (list)))
+             (gs (take gs (min (length gs) (- BUDGET (length acc)) PER-ROUND)))
+             (new (map (lambda (g) (measure g (string-append "llm round " (number->string r)))) gs)))
+        (set! llm-rows (append llm-rows (decide-batch s-llm new acc)))
+        (loop (+ r 1) (append acc new))))))
+(define t-llm1 (monotonic-ms))
+
+;; best-on-train of each arm, against the shipped rule out of sample
+(define (best-row rows)
+  (let loop ((rs rows) (b #f))
+    (cond ((null? rs) b)
+          ((and (hash-ref (car rs) "feasible" #f)
+                (or (not b) (> (hash-ref (car rs) "train-sum") (hash-ref b "train-sum"))))
+           (loop (cdr rs) (car rs)))
+          (else (loop (cdr rs) b)))))
+(define (count-kept rows) (length (filter (lambda (r) (hash-ref r "kept")) rows)))
+(define (count-refused rows) (length (filter (lambda (r) (hash-ref r "refusal")) rows)))
+(define (r2 x) (m-round x 2))
+(define (arm-summary name rows ms)
+  (let ((b (best-row rows)))
+    (hash "arm" name "candidates" (length rows) "kept" (count-kept rows)
+          "refused" (count-refused rows)
+          "infeasible" (length (filter (lambda (r) (and (not (hash-ref r "refusal")) (not (hash-ref r "feasible" #f)))) rows))
+          "keep-rate" (if (null? rows) 0.0 (r2 (/ (* 1.0 (count-kept rows)) (length rows))))
+          "best-train" (if b (r2 (hash-ref b "train-sum")) #f)
+          "best-oos" (if b (r2 (hash-ref b "oos-sum")) #f)
+          "best-oos-mean-diff" (if b (r2 (hash-ref b "mean-diff")) #f)
+          "best-t" (if b (r2 (hash-ref b "t")) #f)
+          "best-deflated" (if b (r2 (hash-ref b "deflated")) #f)
+          "best-kept" (if b (hash-ref b "kept") #f)
+          "ms" ms)))
+
+(define es-sum (arm-summary "es" es-rows (- t-es1 t-es0)))
+(define llm-sum (arm-summary "llm" llm-rows (- t-llm1 t-llm0)))
+
+;; ── daily review of P4's audit (one call, offline) ──
+(define p4 (if (file-exists? "out/p4.json") (json-parse (read-file "out/p4.json")) #f))
+(define review
+  (if (not p4) #f
+    (ask "你是外汇模拟盘的复盘助手。只根据给出的数字写，不编造，不给投资建议。用中文，五句话以内。"
+         (string-append
+           "今日模拟盘审计摘要（夹具行情，不是实盘）："
+           " 根数=" (number->string (hash-ref p4 "bars"))
+           " 下单数=" (number->string (hash-ref p4 "orders"))
+           " 盈亏=" (number->string (hash-ref p4 "pnl"))
+           " 期末持仓=" (number->string (hash-ref p4 "pos"))
+           " 最大回撤=" (number->string (hash-ref p4 "max-dd"))
+           " 热替换成功=" (number->string (hash-ref p4 "swaps"))
+           " 替换被门禁拒绝=" (number->string (hash-ref p4 "swap-refused"))
+           " 注入故障后自愈=" (number->string (hash-ref p4 "heals"))
+           " 风控拦截=" (number->string (hash-ref p4 "risk-blocks"))
+           "。请写今日复盘：发生了什么、风控是否起作用、明天该看什么。")
+         600)))
+(if review
+  (write-file "out/review.md" (string-append "# 每日复盘（LLM 生成，离线）\n\n" review "\n"))
+  #f)
+
+(define stats (llm:call-stats))
+(define (row-json r)
+  (hash "candidate" (hash-ref r "candidate") "reason" (hash-ref r "reason") "kept" (hash-ref r "kept")
+        "train" (r2 (hash-ref r "train-sum" 0.0)) "oos" (r2 (hash-ref r "oos-sum" 0.0))
+        "t" (r2 (hash-ref r "t" 0.0)) "deflated" (r2 (hash-ref r "deflated" 0.0))))
+(write-file "out/p5.json"
+  (json-encode (hash "budget" BUDGET "es" es-sum "llm" llm-sum
+                     "es-rows" (map row-json es-rows)
+                     "llm-rows" (map row-json llm-rows)
+                     "llm-genomes" (map (lambda (m) (evo:candidate-genome (hash-ref m "cand"))) llm-ms)
+                     "calls" (length calls)
+                     "calls-ok" (length (filter (lambda (c) (hash-ref c "ok")) calls))
+                     "call-ms" (map (lambda (c) (hash-ref c "ms")) (reverse calls))
+                     "call-errors" (map (lambda (c) (hash-ref c "error")) (filter (lambda (c) (not (hash-ref c "ok"))) calls))
+                     "llm-call-stats" (hash->list stats)
+                     "rate-limit-remaining" (llm:rate-limit-remaining)
+                     "io-read-denied-before-ask" denied-before-ask
+                     "review" (if review review ""))))
+
+(define (show a)
+  (display "P5 ") (display (hash-ref a "arm"))
+  (display " candidates=") (display (hash-ref a "candidates"))
+  (display " refused=") (display (hash-ref a "refused"))
+  (display " infeasible=") (display (hash-ref a "infeasible"))
+  (display " kept=") (display (hash-ref a "kept"))
+  (display " keep-rate=") (display (hash-ref a "keep-rate"))
+  (display " best-train=") (display (hash-ref a "best-train"))
+  (display " best-oos=") (display (hash-ref a "best-oos"))
+  (display " t=") (display (hash-ref a "best-t"))
+  (display " deflated=") (display (hash-ref a "best-deflated"))
+  (display " ms=") (display (hash-ref a "ms")) (newline))
+(display "P5 shipped oos=") (display (r2 (m-sum base-oos))) (newline)
+(show es-sum)
+(show llm-sum)
+(display "P5 llm calls=") (display (length calls)) (display " ok=")
+(display (length (filter (lambda (c) (hash-ref c "ok")) calls)))
+(display " ms=") (display (map (lambda (c) (hash-ref c "ms")) (reverse calls))) (newline)
+(display "P5 llm:call-stats=") (display (hash->list stats)) (newline)
+(display "P5 review=") (display (if review "out/review.md" "skipped")) (newline)
+(display "P5_OK") (newline)
