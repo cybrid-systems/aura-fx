@@ -1,0 +1,28 @@
+;; Walk the fixture. At each bar, kNN picks a member, that member emits
+;; a target lot, and a position change becomes one open-market intent.
+;; The Python adapter is the broker. It must replay these intents to the
+;; same pnl, or the pipe is not connected.
+
+(require "lib/desk")
+
+(define session (run-session mids (selector-chooser)))
+
+(make-directory "out")
+(write-file "out/session.json"
+  (json-encode (hash "broker" "paper"
+                     "instrument" (hash-ref session "instrument")
+                     "lot" (hash-ref session "lot")
+                     "half-spread" (hash-ref session "half-spread")
+                     "mark" (hash-ref session "mark")
+                     "pnl" (hash-ref session "pnl")
+                     "pos" (hash-ref session "pos")
+                     "max-dd" (hash-ref session "max-dd")
+                     "orders" (hash-ref session "orders"))))
+
+(display "broker=paper") (newline)
+(display "instrument=EUR/USD") (newline)
+(display "orders=") (display (length (hash-ref session "orders"))) (newline)
+(display "pnl=") (display (hash-ref session "pnl")) (newline)
+(display "pos=") (display (hash-ref session "pos")) (newline)
+(display "max-dd=") (display (hash-ref session "max-dd")) (newline)
+(display "PIPE_AURA_OK") (newline)

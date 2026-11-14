@@ -1,0 +1,9 @@
+name = "aura-fx"
+entry = "main.aura"
+preset = "dev"
+out = "out"
+
+# Nightly is the channel this project is written against.
+# aura new pins the same tag into CI; there is no package registry.
+[dependencies]
+aura = "nightly"

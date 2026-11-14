@@ -1,0 +1,55 @@
+;; Fit a 3-member portfolio on six windows of the fixture tape.
+;; Two windows per regime, so a leave-one-out neighbour of the same
+;; regime still exists. The selector reads slope and chop only.
+;; `from` and `to` are not features: they would leak the regime id.
+
+(require "lib/tape")
+(require "lib/signal")
+(require "lib/book")
+(require "std/portfolio" all:)
+(require "std/algo-select" all:)
+
+(define mids (tape-mids 240))
+
+(define (window name from to)
+  (hash "name" name "from" from "to" to "prices" mids))
+
+(define windows
+  (list (window "up-a" 0 40)
+        (window "up-b" 40 80)
+        (window "range-a" 80 120)
+        (window "range-b" 120 160)
+        (window "down-a" 160 200)
+        (window "down-b" 200 240)))
+
+(define (factory name)
+  (lambda (inst ctx)
+    (score-one (signal-fn name)
+               (hash-ref inst "prices")
+               (hash-ref inst "from")
+               (hash-ref inst "to"))))
+
+(define pf
+  (portfolio:add!
+    (portfolio:add!
+      (portfolio:add! (portfolio:make (hash "sense" "max"))
+                      "trend" (factory "trend"))
+      "meanrev" (factory "meanrev"))
+    "breakout" (factory "breakout")))
+
+(define mtx (portfolio:matrix pf windows (hash "seeds" (list 1))))
+
+(define sel
+  (select:offline
+    (select:features-fn!
+      (select:make (hash "model" "knn" "k" 1 "sense" "max"))
+      (lambda (inst)
+        (window-features (hash-ref inst "prices")
+                         (- (hash-ref inst "to") 1))))
+    mtx
+    (hash)))
+
+(define (selector-chooser)
+  (lambda (prices i)
+    (let ((xs (select:choose sel (hash "prices" prices "to" (+ i 1)) 1)))
+      (if (pair? xs) (car xs) "trend"))))

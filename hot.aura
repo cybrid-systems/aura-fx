@@ -1,0 +1,21 @@
+;; Swap one live definition and heal it. The process does not restart.
+;; This is the surface a running order rule would use. It does not
+;; submit anything.
+
+(require "std/mutate" all:)
+(require "std/hot-strategy" all:)
+
+(set-code "(define (band mid) (if (> mid 1.11) 1 -1))")
+(eval-current)
+(hot-strategy:register! "band" "(lambda (mid) (if (> mid 1.11) 1 -1))")
+
+(display "before=") (display (band 1.12)) (newline)
+
+(define swapped (hot-strategy:swap! "band" "(lambda (mid) (if (> mid 1.20) 1 -1))" "widen"))
+(display "swap=") (display (if (car swapped) "ok" "fail")) (newline)
+(display "widened=") (display (band 1.12)) (newline)
+
+(hot-strategy:heal!)
+(eval-current)
+(display "healed=") (display (band 1.12)) (newline)
+(display "HOT_OK") (newline)

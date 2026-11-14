@@ -1,0 +1,107 @@
+;; Paper book. One lot is 10000 EUR. A buy fills at mid + half-spread,
+;; a sell at mid - half-spread. Open inventory is marked at the mid,
+;; so the spread is paid on the fill and not again on the mark.
+;;
+;; An order is the ForexConnect open-market shape:
+;;   command CreateOrder, order_type OM, buy_sell B|S, amount in base units,
+;;   rate = the decision mid (the adapter adds the spread).
+
+(require "lib/signal")
+
+(define LOT 10000)
+(define HALF 0.00008)
+
+(define (second xs) (car (cdr xs)))
+(define (third xs) (car (cdr (cdr xs))))
+
+(define (absn x) (if (< x 0) (- x) x))
+
+;; Returns (pos avg realized). q is a signed unit quantity.
+(define (apply-fill pos avg realized q p)
+  (cond
+    ((= q 0) (list pos avg realized))
+    ((or (= pos 0) (= (sgn q) (sgn pos)))
+     (let ((newpos (+ pos q)))
+       (list newpos (/ (+ (* avg pos) (* p q)) newpos) realized)))
+    (else
+     (let* ((closing (if (< (absn q) (absn pos)) (absn q) (absn pos)))
+            (realized2 (+ realized
+                          (if (> pos 0)
+                            (* (- p avg) closing)
+                            (* (- avg p) closing))))
+            (newpos (+ pos q)))
+       (cond
+         ((= newpos 0) (list 0 0.0 realized2))
+         ((= (sgn pos) (sgn newpos)) (list newpos avg realized2))
+         (else (list newpos p realized2)))))))
+
+(define (mark-pnl realized pos avg mid)
+  (cond ((= pos 0) realized)
+        ((> pos 0) (+ realized (* (- mid avg) pos)))
+        (else (+ realized (* (- avg mid) (absn pos))))))
+
+;; Score one signal on prices[from, to). The first 16 bars are warmup.
+(define (score-one sig prices from to)
+  (let ((start (+ from 16))
+        (end-mid (list-ref prices (- to 1))))
+    (if (>= start to) 0.0
+      (let loop ((i start) (pos 0) (avg 0.0) (realized 0.0) (prev 0))
+        (if (>= i to)
+          (mark-pnl realized pos avg end-mid)
+          (let* ((want (sig prices i prev))
+                 (delta (- (* want LOT) pos)))
+            (if (= delta 0)
+              (loop (+ i 1) pos avg realized want)
+              (let* ((mid (list-ref prices i))
+                     (px (if (> delta 0) (+ mid HALF) (- mid HALF)))
+                     (nxt (apply-fill pos avg realized delta px)))
+                (loop (+ i 1) (car nxt) (second nxt) (third nxt) want)))))))))
+
+;; chooser is (lambda (prices i) -> strategy name). Trades from bar 16.
+(define (run-session prices chooser)
+  (let ((n (length prices))
+        (mark (list-ref prices (- (length prices) 1))))
+    (let loop ((i 16) (pos 0) (avg 0.0) (realized 0.0) (prev 0)
+               (orders (list)) (seq 0) (peak 0.0) (maxdd 0.0) (picks (list)))
+      (if (>= i n)
+        (hash "pnl" (mark-pnl realized pos avg mark)
+              "pos" pos
+              "max-dd" maxdd
+              "orders" (reverse orders)
+              "mark" mark
+              "picks" (reverse picks)
+              "half-spread" HALF
+              "lot" LOT
+              "instrument" "EUR/USD")
+        (let* ((name (chooser prices i))
+               (want ((signal-fn name) prices i prev))
+               (delta (- (* want LOT) pos))
+               (mid (list-ref prices i)))
+          (if (= delta 0)
+            (let* ((eq (mark-pnl realized pos avg mid))
+                   (peak2 (if (> eq peak) eq peak))
+                   (dd (- peak2 eq))
+                   (maxdd2 (if (> dd maxdd) dd maxdd)))
+              (loop (+ i 1) pos avg realized want orders seq peak2 maxdd2
+                    (cons name picks)))
+            (let* ((px (if (> delta 0) (+ mid HALF) (- mid HALF)))
+                   (nxt (apply-fill pos avg realized delta px))
+                   (npos (car nxt))
+                   (navg (second nxt))
+                   (nreal (third nxt))
+                   (eq (mark-pnl nreal npos navg mid))
+                   (peak2 (if (> eq peak) eq peak))
+                   (dd (- peak2 eq))
+                   (maxdd2 (if (> dd maxdd) dd maxdd))
+                   (ord (hash "seq" seq
+                              "instrument" "EUR/USD"
+                              "account" ""
+                              "command" "CreateOrder"
+                              "order_type" "OM"
+                              "buy_sell" (if (> delta 0) "B" "S")
+                              "amount" (absn delta)
+                              "rate" mid
+                              "time_in_force" "IOC"
+                              "tag" name)))
+              (loop (+ i 1) npos navg nreal want (cons ord orders) (+ seq 1)
+                    peak2 maxdd2 (cons name picks)))))))))

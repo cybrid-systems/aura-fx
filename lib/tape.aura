@@ -1,0 +1,19 @@
+;; Synthetic EUR/USD mids. Three regimes, 80 bars each:
+;;   0..79    trend up, 4 pips per bar
+;;   80..159  range, period-4 triangle, ±18 pips around 1.13200
+;;   160..239 trend down, 4.5 pips per bar, continuous from the range
+;;
+;; This is a fixture for the decision loop. It is not a market replay.
+
+(define (tape-mid i)
+  (cond
+    ((< i 80) (+ 1.10000 (* i 0.00040)))
+    ((< i 160)
+     (let ((p (modulo (- i 80) 4)))
+       (+ 1.13200 (* (- p 1.5) 0.00120))))
+    (else (- 1.13380 (* (- i 160) 0.00045)))))
+
+(define (tape-mids n)
+  (let loop ((i (- n 1)) (acc (list)))
+    (if (< i 0) acc
+      (loop (- i 1) (cons (tape-mid i) acc)))))

@@ -1,0 +1,81 @@
+;; What the portfolio buys on this fixture.
+;; SBS is the one member you would have shipped. VBS is the per-window
+;; oracle. gap-closure is leave-one-out kNN (std/algo-select), not the
+;; in-sample fit. FULL is the same three members, and the selector,
+;; on the whole 240-bar tape.
+
+(require "lib/desk")
+
+(define (show-pairs names scores)
+  (if (null? names) #t
+    (begin
+      (display (car names))
+      (display "=")
+      (display (car scores))
+      (display " ")
+      (show-pairs (cdr names) (cdr scores)))))
+
+(define (show-matrix)
+  (let ((names (hash-ref mtx "members"))
+        (means (hash-ref mtx "means"))
+        (insts (hash-ref mtx "instances")))
+    (let loop ((is insts) (ms means))
+      (if (null? is) #t
+        (begin
+          (display "WINDOW ")
+          (display (hash-ref (car is) "name"))
+          (display " ")
+          (show-pairs names (car ms))
+          (newline)
+          (loop (cdr is) (cdr ms)))))))
+
+(define (best-name names scores)
+  (let loop ((ns (cdr names)) (ms (cdr scores))
+             (bn (car names)) (bv (car scores)))
+    (if (null? ns) bn
+      (if (> (car ms) bv)
+        (loop (cdr ns) (cdr ms) (car ns) (car ms))
+        (loop (cdr ns) (cdr ms) bn bv)))))
+
+(define (in-sample-hits)
+  (let ((names (hash-ref mtx "members"))
+        (means (hash-ref mtx "means"))
+        (insts (hash-ref mtx "instances")))
+    (let loop ((is insts) (ms means) (hit 0) (n 0))
+      (if (null? is) (list hit n)
+        (let* ((oracle (best-name names (car ms)))
+               (xs (select:choose sel (car is) 1))
+               (got (if (pair? xs) (car xs) "")))
+          (loop (cdr is) (cdr ms)
+                (if (string=? got oracle) (+ hit 1) hit)
+                (+ n 1)))))))
+
+(define (count-name picks name)
+  (let loop ((ps picks) (n 0))
+    (if (null? ps) n
+      (loop (cdr ps) (if (string=? (car ps) name) (+ n 1) n)))))
+
+(define (pnl-of name)
+  (hash-ref (run-session mids (lambda (prices i) name)) "pnl"))
+
+(define rep (select:report sel))
+(define chosen (run-session mids (selector-chooser)))
+(define hits (in-sample-hits))
+(define picks (hash-ref chosen "picks"))
+
+(show-matrix)
+(display "SBS ") (display (hash-ref rep "sbs")) (newline)
+(display "VBS ") (display (hash-ref rep "vbs")) (newline)
+(display "LOO ") (display (hash-ref rep "loo")) (newline)
+(display "GAP ") (display (hash-ref rep "gap-closure")) (newline)
+(display "HITS ") (display (car hits)) (display "/") (display (second hits)) (newline)
+(display "FULL trend=") (display (pnl-of "trend"))
+(display " meanrev=") (display (pnl-of "meanrev"))
+(display " breakout=") (display (pnl-of "breakout"))
+(display " selector=") (display (hash-ref chosen "pnl"))
+(newline)
+(display "PICKS trend=") (display (count-name picks "trend"))
+(display " meanrev=") (display (count-name picks "meanrev"))
+(display " breakout=") (display (count-name picks "breakout"))
+(newline)
+(display "ADVANTAGE_OK") (newline)
