@@ -12,6 +12,15 @@ live   nets the session's orders into Demo: TRUE_MARKET_CLOSE with TRADE_ID
        rejects orders while forex is closed (Friday 17:00 to Sunday 17:15
        New York time), so live refuses with MARKET_CLOSED. See cmd_live.
 
+Both paper and live run risk_check first. It is this file's own copy of
+the limits, not the numbers in the session, so a session that got past
+Aura's gates still has to pass here: |position| <= FX_MAX_POS (10000),
+one order <= FX_MAX_AMOUNT (20000), and at most FX_MAX_ORDERS_40 (32)
+orders in any 40 bars (needs the order "bar" field; skipped without it).
+These are a backstop, looser than the Aura gate (24 orders per 40 bars):
+the fixture's range segment trades 25 times in 40 bars on the paper path.
+A failing session prints RISK_BLOCKED and nothing is replayed or sent.
+
 The intent fields match ForexConnect create_order_request:
   order_type OM, buy_sell B|S, amount in base units, rate is the decision mid.
   Live finds the offer by instrument in OFFERS (Common.get_offer skips any
@@ -114,6 +123,54 @@ def replay(session):
     return mark_pnl(realized, pos, avg, mark), pos
 
 
+def risk_limits():
+    return (
+        float(os.environ.get("FX_MAX_POS", "10000")),
+        float(os.environ.get("FX_MAX_AMOUNT", "20000")),
+        int(os.environ.get("FX_MAX_ORDERS_40", "32")),
+    )
+
+
+def risk_check(orders, start_pos=0.0):
+    """Independent limits. Returns a list of violation strings."""
+    max_pos, max_amount, max_rate = risk_limits()
+    bad = []
+    pos = start_pos
+    bars = []
+    for order in orders:
+        amount = float(order.get("amount", 0))
+        side = order.get("buy_sell")
+        if amount > max_amount:
+            bad.append(f"seq={order.get('seq')} amount={amount:g} > {max_amount:g}")
+        pos += amount if side == "B" else -amount
+        if abs(pos) > max_pos:
+            bad.append(f"seq={order.get('seq')} pos={pos:g} > {max_pos:g}")
+        if "bar" in order:
+            bars.append(int(order["bar"]))
+    if bars and len(bars) == len(orders):
+        lo = 0
+        for hi, bar in enumerate(bars):
+            while bars[lo] <= bar - 40:
+                lo += 1
+            if hi - lo + 1 > max_rate:
+                bad.append(f"seq={orders[hi].get('seq')} orders-in-40-bars={hi - lo + 1} > {max_rate}")
+                break
+    return bad
+
+
+def print_risk(orders, start_pos=0.0):
+    bad = risk_check(orders, start_pos)
+    rate = "on" if orders and all("bar" in o for o in orders) else "skipped(no bar)"
+    print(f"risk max-pos/amount/orders-40={'/'.join(f'{x:g}' for x in risk_limits())} rate-check={rate}")
+    if bad:
+        for line in bad[:5]:
+            print(f"risk-violation {line}")
+        print(f"RISK_BLOCKED violations={len(bad)}")
+        return False
+    print("risk=ok")
+    return True
+
+
 def forexconnect_state():
     try:
         import forexconnect  # noqa: F401
@@ -152,6 +209,8 @@ def cmd_probe(_args):
 def cmd_paper(args):
     with open(args.session, encoding="utf-8") as fh:
         session = json.load(fh)
+    if not print_risk(session["orders"]):
+        return 3
     pnl, pos = replay(session)
     aura_pnl = float(session["pnl"])
     aura_pos = float(session["pos"])
@@ -511,6 +570,10 @@ def cmd_live(args):
     if not orders:
         print("live: no orders selected")
         return 2
+    # Limits are checked on the whole session path from flat, not only on
+    # the selected slice: a slice that starts mid-session inherits its pos.
+    if not print_risk(session["orders"]):
+        return 3
 
     if args.offline:
         print("mode=live-offline account=flat (no login)")

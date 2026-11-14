@@ -1,0 +1,20 @@
+;; Read what P1 committed (out/p1.json). Later phases boot the live
+;; workspace from it; without it they boot the shipped rule.
+(require "lib/wf")
+(require "std/fs" all:)
+
+(define (p1-report)
+  (if (file-exists? "out/p1.json") (json-parse (read-file "out/p1.json")) #f))
+
+(define (p1-live-code)
+  (let ((r (p1-report)))
+    (if r (hash-ref (hash-ref r "commit") "live-code") (params-code BASE-PARAMS))))
+
+(define (p1-live-params)
+  (let ((r (p1-report)))
+    (if (and r (string=? (hash-ref (hash-ref r "commit") "decision") "KEEP"))
+      (hash-ref (hash-ref r "commit") "params")
+      BASE-PARAMS)))
+
+(define (p1-trial-srs)
+  (let ((r (p1-report))) (if r (hash-ref r "es-trial-srs") (list))))

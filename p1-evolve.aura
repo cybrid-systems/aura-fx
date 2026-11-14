@@ -1,0 +1,106 @@
+;; P1: parameter evolution with out-of-sample gates.
+;;
+;; 6 seeded tapes x 8 windows. Walk-forward folds 5, 6, 7: 18 test
+;; windows, each tested by parameters fitted only on earlier windows.
+;; es is the search that may commit; pso and abc run on the same folds,
+;; seeds and budget for comparison. Same seed, same output: out/p1.json
+;; holds no timings (they go to out/p1-timing.json).
+
+(require "lib/wf")
+
+(define SEED 7)
+(define BUDGET 64)   ; scored candidates per fold
+(define POP 8)
+
+(boot! (params-code BASE-PARAMS))
+(make-directory "out")
+
+(define tapes (make-tapes SEED 6))
+(define base-oos (baseline-oos tapes BASE-PARAMS))
+
+(define (run-kind kind)
+  (let* ((t0 (monotonic-ms))
+         (wf (walk-forward kind SEED tapes BUDGET POP par-map))
+         (t1 (monotonic-ms))
+         (gate (oos-gate (hash-ref wf "oos") base-oos (hash-ref wf "trial-srs"))))
+    (hash "kind" kind "wf" wf "gate" gate "ms" (- t1 t0))))
+
+(define results (map run-kind (list "es" "pso" "abc")))
+(define es (car results))
+
+;; Commit the ES result: the last fold's parameters (fitted on windows
+;; 1..6) go live only if the gate kept the walk-forward procedure.
+(define last-fold (car (reverse (hash-ref (hash-ref es "wf") "folds"))))
+(define cand-params (hash-ref last-fold "params"))
+(define cand-code (params-code cand-params))
+(define s (commit-search "fx-p1-es" SEED))
+(define cand (evo:candidate cand-code (hash "target" "rule-entry" "gen" 7
+                                            "thought" "walk-forward es, fold 7 params")))
+(define trial (trial-measure cand (append (fold-train tapes 7) (fold-test tapes 7))))
+(define ev (commit-eval trial (hash-ref es "gate") (m-sum (hash-ref (hash-ref es "wf") "oos"))))
+(define rev-before (hot-strategy:version))
+(define kept (evo:commit! s cand ev))
+(define live-now (hot-strategy:last-good-body))
+
+(define (r2 x) (m-round x 2))
+(define (row r)
+  (let ((g (hash-ref r "gate")) (wf (hash-ref r "wf")))
+    (hash "kind" (hash-ref r "kind")
+          "evals" (hash-ref wf "evals")
+          "oos-sum" (r2 (m-sum (hash-ref wf "oos")))
+          "oos-mean-diff" (r2 (hash-ref g "mean-diff"))
+          "t" (r2 (hash-ref g "t")) "crit" (hash-ref g "crit") "n" (hash-ref g "n")
+          "gate-keep" (hash-ref g "gate-keep")
+          "sr" (r2 (hash-ref g "sr")) "sr0" (r2 (hash-ref g "sr0"))
+          "deflated" (r2 (hash-ref g "deflated")) "dsr" (m-round (hash-ref g "dsr") 3)
+          "trials" (hash-ref g "trials")
+          "decision" (if (hash-ref g "keep") "KEEP" "ROLLBACK")
+          "folds" (map (lambda (f) (hash "fold" (hash-ref f "fold") "params" (hash-ref f "params")
+                                         "train-sum" (r2 (hash-ref f "train-sum"))
+                                         "test-sum" (r2 (hash-ref f "test-sum"))))
+                       (hash-ref wf "folds")))))
+
+(define report
+  (hash "seed" SEED "tapes" (map (lambda (t) (hash-ref t "id")) tapes)
+        "regimes" (map (lambda (t) (hash-ref t "regimes")) tapes)
+        "test-windows" (length base-oos)
+        "baseline" (hash "params" BASE-PARAMS "oos-sum" (r2 (m-sum base-oos))
+                         "oos-sharpe" (r2 (m-sharpe base-oos)))
+        "searches" (map row results)
+        "es-oos" (map r2 (hash-ref (hash-ref es "wf") "oos"))
+        "es-trial-srs" (map (lambda (x) (m-round x 4)) (hash-ref (hash-ref es "wf") "trial-srs"))
+        "commit" (hash "candidate" (evo:candidate-id cand) "code" cand-code
+                       "params" cand-params
+                       "trial-status" (hash-ref trial "status")
+                       "trial-live-unchanged" (hash-ref trial "live-unchanged")
+                       "trial-constraints" (hash-ref trial "constraints")
+                       "decision" (if kept "KEEP" "ROLLBACK")
+                       "rule-rev-before" rev-before
+                       "rule-rev-after" (hot-strategy:version)
+                       "live-code" live-now)))
+
+(write-file "out/p1.json" (json-encode report))
+(write-file "out/p1-timing.json"
+  (json-encode (hash "es-ms" (hash-ref es "ms")
+                     "pso-ms" (hash-ref (list-ref results 1) "ms")
+                     "abc-ms" (hash-ref (list-ref results 2) "ms"))))
+
+(display "P1 tapes=") (display (length tapes)) (display " test-windows=") (display (length base-oos))
+(display " baseline-oos=") (display (r2 (m-sum base-oos))) (newline)
+(for-each (lambda (r)
+  (let ((x (row r)))
+    (display "P1 ") (display (hash-ref x "kind"))
+    (display " oos=") (display (hash-ref x "oos-sum"))
+    (display " t=") (display (hash-ref x "t")) (display "/") (display (hash-ref x "crit"))
+    (display " deflated=") (display (hash-ref x "deflated"))
+    (display " dsr=") (display (hash-ref x "dsr"))
+    (display " trials=") (display (hash-ref x "trials"))
+    (display " ms=") (display (hash-ref r "ms"))
+    (display " -> ") (display (hash-ref x "decision")) (newline)))
+  results)
+(display "P1 commit ") (display (evo:candidate-id cand)) (display " ") (display cand-code)
+(display " trial=") (display (hash-ref trial "status"))
+(display " live-unchanged-in-trial=") (display (hash-ref trial "live-unchanged"))
+(display " -> ") (display (if kept "KEEP" "ROLLBACK")) (newline)
+(display "P1 live rule-entry=") (display live-now) (newline)
+(display "P1_OK") (newline)

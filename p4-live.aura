@@ -1,0 +1,240 @@
+;; P4: the live loop, on a tape none of P1-P3 saw (seed 99).
+;;
+;; One hot entry rule, rule-entry (std/hot-strategy has one active name).
+;; Per bar: read features, call rule-entry through the workspace binding,
+;; apply the pre-trade risk limits, fill, audit the order (features,
+;; member, rule revision, candidate id) into the session and the evo log,
+;; feed the bar's pnl back to the selector.
+;; The live tape is the first seed-99 tape with up, range and down segments.
+;; On drift (select:drift?): the selector's member for the current
+;; features is tried with evo:trial in a child worldline on the last 80
+;; bars; it must be feasible and beat the live rule there; evo:commit!
+;; then swaps it in with hot-strategy:swap!.
+;; Breach: drawdown since the last swap above (risk-heal-dd) heals with
+;; hot-strategy:heal! before the next bar. One breach is injected on
+;; purpose (an inverted copy of the live rule, swapped in without gates).
+;; No Demo order is sent; the session is replayed by the Python adapter.
+
+(require "lib/p1state")
+(require "lib/members")
+(require "std/portfolio" all:)
+(require "std/algo-select" all:)
+(require "std/list" all:)
+
+(define LIVE-SEED 99)
+(define INJECT-BAR 200)
+(define COOLDOWN 20)
+
+(define boot-code (p1-live-code))
+(boot! boot-code)
+(make-directory "out")
+
+;; members and selector (fitted on P3's train tasks)
+(define p3 (json-parse (read-file "out/p3.json")))
+(define members (map json->member (hash-ref p3 "members")))
+(define train (wins (make-tapes 7 6) (list 1 2 3 4)))
+(define (factory mem)
+  (let ((r (member-closure mem))) (lambda (inst ctx) (hash-ref (sim-win r inst) "pnl"))))
+(define pf (foldl (lambda (pf mem) (portfolio:add! pf (hash-ref mem "name") (factory mem)))
+                  (portfolio:make (hash "sense" "max")) members))
+(define mtx (fiber:join (fiber:spawn (lambda () (portfolio:matrix pf train (hash "seeds" (list 1)))))))
+(define sel (select:offline (select:features-fn! (select:make (hash "model" "knn" "k" 1 "sense" "max"))
+                                                  win-features)
+                            mtx (hash)))
+(define (find-member name)
+  (let loop ((ms members)) (cond ((null? ms) #f) ((string=? (hash-ref (car ms) "name") name) (car ms))
+                                 (else (loop (cdr ms))))))
+
+;; the first seed-99 tape that has all three regimes
+(define t
+  (let loop ((k 0))
+    (let ((c (make-tape LIVE-SEED k)))
+      (if (and (member? "up" (hash-ref c "regimes")) (member? "down" (hash-ref c "regimes"))
+               (member? "range" (hash-ref c "regimes")))
+        c (loop (+ k 1))))))
+(define N (tape-n t))
+(define (inst-at i) (hash "tape" t "from" (+ i 1) "to" (+ i 2)))
+
+;; ── mutable loop state (one process, no restart) ──
+(define cur-member (if (string=? boot-code (params-code BASE-PARAMS)) "shipped" "p1-es"))
+(define cur-cand (evo:candidate-id (evo:candidate boot-code (hash "target" "rule-entry"))))
+(define cur-code boot-code)
+(define prev-member cur-member) (define prev-cand cur-cand) (define prev-code cur-code)
+(define swap-bar -1000)
+(define last-try -1000)
+(define RETRY 10)
+(define swap-peak 0.0)
+(define injected #f)
+(define events (list))
+(define (event! h) (set! events (cons h events)))
+(define log-parent "")
+(define (audit! decision reason evidence v2)
+  (let ((rid (evo:record! "rule-entry" decision reason evidence "" 0 log-parent v2)))
+    (if (string? rid) (set! log-parent rid) #f)
+    rid))
+
+(define live-search (commit-search "fx-p4-live" LIVE-SEED))
+
+(define (recent-windows i)
+  (list (hash "tape" t "from" (- i 79) "to" (- i 39)) (hash "tape" t "from" (- i 39) "to" (+ i 1))))
+
+;; drift -> trial -> gates -> swap
+(define (try-swap! i name eq)
+  (let* ((mem (find-member name))
+         (code (member-code mem))
+         (cand (evo:candidate code (hash "target" "rule-entry" "gen" i
+                                         "thought" (string-append "drift -> " name))))
+         (ws (recent-windows i))
+         (tr (trial-measure cand ws))
+         (cur-sum (hash-ref (eval-rule live-rule ws) "sum"))
+         (new-sum (hash-ref (hash-ref tr "objectives" (hash)) "sum" -1e9))
+         (better (> new-sum cur-sum))
+         (ev (hash "objectives" (hash "oos-sum" new-sum "gate-keep" (if better 1 0)
+                                      "live-sum" cur-sum)
+                   "constraints" (hash "max-pos" (hash-ref (hash-ref tr "constraints" (hash)) "max-pos" 0.0)
+                                       "max-dd" (hash-ref (hash-ref tr "constraints" (hash)) "max-dd" 0.0)
+                                       "order-rate" (hash-ref (hash-ref tr "constraints" (hash)) "order-rate" 0.0)
+                                       "trial" (if (evo:trial-ok? tr) 0.0 1.0)
+                                       "scope" 0.0)))
+         (kept (evo:commit! live-search cand ev)))
+    (event! (hash "bar" i "kind" (if kept "SWAP" "SWAP-REFUSED") "member" name
+                  "candidate" (evo:candidate-id cand) "trial" (hash-ref tr "status")
+                  "recent-new" (m-round new-sum 2) "recent-live" (m-round cur-sum 2)
+                  "feasible" (evo:feasible? ev) "rule-rev" (hot-strategy:version)))
+    (if kept
+      (begin
+        (set! prev-member cur-member) (set! prev-cand cur-cand) (set! prev-code cur-code)
+        (set! cur-member name) (set! cur-cand (evo:candidate-id cand)) (set! cur-code code)
+        (set! swap-bar i) (set! swap-peak eq))
+      #f)
+    kept))
+
+(define (inject! i eq)
+  (let* ((code (string-append "(lambda (t i prev) (- 0 (" "(lambda (t i prev) " "0" ") t i prev)))"))
+         (bad (string-append "(define (rule-entry t i prev) (- 0 " (substring cur-code 19 (- (string-length cur-code) 1)) "))"))
+         (r (hot-strategy:swap! "rule-entry" bad "inject: inverted live rule")))
+    (audit! "INJECT" "fault injection: inverted live rule, no gates" (hash "bar" i)
+            (hash "algo" "fx-live" "gen" i "candidate" "inject"))
+    (event! (hash "bar" i "kind" "INJECT" "ok" (car r) "rule-rev" (hot-strategy:version) "code" bad))
+    (set! prev-member cur-member) (set! prev-cand cur-cand) (set! prev-code cur-code)
+    (set! cur-member (string-append "inverted-" cur-member)) (set! cur-cand "inject") (set! cur-code bad)
+    (set! swap-bar i) (set! swap-peak eq) (set! injected #t)))
+
+(define (heal! i breach-bar dd)
+  (let ((ok (hot-strategy:heal!)))
+    (audit! "HEAL" (string-append "drawdown since swap " (number->string (m-round dd 2)))
+            (hash "bar" i "breach-bar" breach-bar)
+            (hash "algo" "fx-live" "gen" i "candidate" cur-cand))
+    (event! (hash "bar" i "kind" "HEAL" "ok" ok "breach-bar" breach-bar "latency-bars" (- i breach-bar)
+                  "dd" (m-round dd 2) "from" cur-member "to" prev-member "rule-rev" (hot-strategy:version)))
+    (set! cur-member prev-member) (set! cur-cand prev-cand) (set! cur-code prev-code)
+    (set! swap-bar -1000)
+    ok))
+
+;; probe the live rule's output at a fixed bar (to show heal restored it)
+(define (probe) (live-rule t 100 0))
+(define probe-boot (probe))
+
+(define (run-loop)
+  (let loop ((i 40) (pos 0) (avg 0.0) (real 0.0) (prev 0) (orders (list)) (seq 0)
+             (peak 0.0) (dd 0.0) (last-eq 0.0) (recent-bars (list)) (blocks 0) (drifts 0))
+    (if (>= i N)
+      (hash "pnl" (emark real pos avg (tape-px t (- N 1))) "pos" pos "mark" (tape-px t (- N 1))
+            "max-dd" dd "orders" (reverse orders) "blocks" blocks "drifts" drifts)
+      (let* ((f (hash "slope" (tape-slope t i) "chop" (tape-chop t i)))
+             (raw (live-rule t i prev))
+             (want0 (if (integer? raw) raw 0))
+             ;; pre-trade limits (same workspace defines the gates use)
+             (want1 (if (> (eabs (* want0 ELOT)) (risk-max-pos)) (esgn want0) want0))
+             (recent (filter (lambda (b) (> b (- i 40))) recent-bars))
+             (rate-full (>= (length recent) (risk-max-orders)))
+             (want (if (and rate-full (not (= (* want1 ELOT) pos))) (quotient pos ELOT) want1))
+             (blocked (or (not (= want want0))))
+             (delta (- (* want ELOT) pos))
+             (mid (tape-px t i)))
+        (let* ((fill (if (= delta 0) (list pos avg real)
+                       (efill pos avg real delta (if (> delta 0) (+ mid EHALF) (- mid EHALF)))))
+               (npos (car fill)) (navg (list-ref fill 1)) (nreal (list-ref fill 2))
+               (eq (emark nreal npos navg mid))
+               (pk (if (> eq peak) eq peak))
+               (ndd (if (> (- pk eq) dd) (- pk eq) dd))
+               (audit (hash "bar" i "features" f "member" cur-member
+                            "rule-rev" (hot-strategy:version) "candidate" cur-cand))
+               (ord (if (= delta 0) #f (order-hash seq i delta mid cur-member audit))))
+          (if ord
+            (audit! "ORDER" (string-append (if (> delta 0) "B " "S ") (number->string (eabs delta)))
+                    (hash "seq" seq "bar" i "rate" mid "features" f "rule-rev" (hot-strategy:version))
+                    (hash "algo" "fx-live" "gen" i "slot" seq "candidate" cur-cand
+                          "behavior" f "objectives" (hash "equity" (m-round eq 2))))
+            #f)
+          (if blocked (event! (hash "bar" i "kind" "RISK-BLOCK" "want" want0 "sent" want)) #f)
+          ;; online feedback: this bar's pnl for the member that traded it
+          ;; (the injected rule is not a portfolio member and gets no credit)
+          (if (find-member cur-member) (select:feedback! sel (inst-at i) cur-member (- eq last-eq)) #f)
+          ;; breach -> heal before the next bar
+          (let* ((sp (if (> eq swap-peak) eq swap-peak))
+                 (sdd (- sp eq)))
+            (set! swap-peak sp)
+            (cond
+              ((and (>= swap-bar 0) (> sdd (risk-heal-dd)))
+               (heal! i i sdd))
+              ((and (= i INJECT-BAR) (not injected))
+               (inject! i eq))
+              ((and (> (- i swap-bar) COOLDOWN) (> (- i last-try) RETRY) (>= i 80) (select:drift? sel))
+               (let* ((xs (select:choose sel (inst-at i) 1))
+                      (name (if (pair? xs) (car xs) cur-member)))
+                 (if (and (find-member name) (not (string=? name cur-member)))
+                   (begin (set! last-try i) (try-swap! i name eq))
+                   #f)))
+              (else #f)))
+          (loop (+ i 1) npos navg nreal want (if ord (cons ord orders) orders) (if ord (+ seq 1) seq)
+                pk ndd eq (if ord (cons i recent) recent) (if blocked (+ blocks 1) blocks)
+                (if (select:drift? sel) (+ drifts 1) drifts)))))))
+
+(define t0 (monotonic-ms))
+(define res (run-loop))
+(define t1 (monotonic-ms))
+(define probe-end (probe))
+
+(define session (session-hash (hash-ref res "orders") (hash-ref res "pnl") (hash-ref res "pos")
+                              (hash-ref res "mark") (hash-ref res "max-dd")))
+(write-file "out/live-session.json" (json-encode session))
+
+(define evs (reverse events))
+(define (kind-count k) (length (filter (lambda (e) (string=? (hash-ref e "kind") k)) evs)))
+(define heals (filter (lambda (e) (string=? (hash-ref e "kind") "HEAL")) evs))
+(define inject-ev (filter (lambda (e) (string=? (hash-ref e "kind") "INJECT")) evs))
+(define inject-heal
+  (if (null? inject-ev) #f
+    (let ((ib (hash-ref (car inject-ev) "bar")))
+      (let loop ((hs heals)) (cond ((null? hs) #f) ((> (hash-ref (car hs) "bar") ib) (car hs)) (else (loop (cdr hs))))))))
+(define heal-ok (and inject-heal (<= (hash-ref inject-heal "latency-bars") 1)
+                     (hash-ref inject-heal "ok")))
+
+(write-file "out/p4.json"
+  (json-encode (hash "tape" (hash-ref t "id") "regimes" (hash-ref t "regimes") "bars" (- N 40)
+                     "orders" (length (hash-ref res "orders")) "pnl" (m-round (hash-ref res "pnl") 2)
+                     "pos" (hash-ref res "pos") "max-dd" (m-round (hash-ref res "max-dd") 2)
+                     "swaps" (kind-count "SWAP") "swap-refused" (kind-count "SWAP-REFUSED")
+                     "heals" (length heals) "risk-blocks" (hash-ref res "blocks")
+                     "drift-bars" (hash-ref res "drifts")
+                     "inject-bar" INJECT-BAR
+                     "inject-heal" inject-heal "heal-within-1-bar" heal-ok
+                     "probe-boot" probe-boot "probe-end" probe-end
+                     "rule-rev-final" (hot-strategy:version)
+                     "events" evs)))
+(write-file "out/p4-timing.json" (json-encode (hash "loop-ms" (- t1 t0))))
+
+(display "P4 tape=") (display (hash-ref t "id")) (display " bars=") (display (- N 40))
+(display " orders=") (display (length (hash-ref res "orders")))
+(display " pnl=") (display (m-round (hash-ref res "pnl") 2)) (display " pos=") (display (hash-ref res "pos")) (newline)
+(for-each (lambda (e) (display "P4 ") (display (hash-ref e "bar")) (display " ") (display (hash-ref e "kind"))
+            (display " ") (display (hash-ref e "member" (hash-ref e "from" ""))) (display " rev=") (display (hash-ref e "rule-rev" ""))
+            (if (hash-ref e "latency-bars" #f) (begin (display " latency=") (display (hash-ref e "latency-bars"))) #f)
+            (newline))
+          (filter (lambda (e) (not (string=? (hash-ref e "kind") "RISK-BLOCK"))) evs))
+(display "P4 swaps=") (display (kind-count "SWAP")) (display " refused=") (display (kind-count "SWAP-REFUSED"))
+(display " heals=") (display (length heals)) (display " risk-blocks=") (display (hash-ref res "blocks"))
+(display " heal-within-1-bar=") (display heal-ok)
+(display " probe boot/end=") (display probe-boot) (display "/") (display probe-end) (newline)
+(if heal-ok (begin (display "P4_OK") (newline)) (begin (display "P4_FAIL") (newline)))

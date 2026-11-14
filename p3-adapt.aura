@@ -1,0 +1,253 @@
+;; P3: parallel candidates, NSGA-II, MAP-Elites by regime, a retrained
+;; selector, and online feedback.
+;;
+;; Train tasks are windows 1..4 of the six seed-7 tapes, test tasks are
+;; windows 5..7 (the same 18 windows P1 tests on). meta:disjoint? proves
+;; the two task sets share no id.
+
+(require "lib/p1state")
+(require "lib/members")
+(require "std/pareto" all:)
+(require "std/qd" all:)
+(require "std/portfolio" all:)
+(require "std/algo-select" all:)
+(require "std/evo-meta" all:)
+
+(define SEED 7)
+(define NSGA-POP 16)
+(define NSGA-EVALS 128)
+
+(boot! (p1-live-code))
+(make-directory "out")
+
+(define tapes (make-tapes SEED 6))
+(define train (wins tapes (list 1 2 3 4)))
+(define test (wins tapes (list 5 6 7)))
+(define disjoint (meta:disjoint? train test))
+(define leak-caught (not (meta:disjoint? train (cons (car test) train))))
+
+;; ── NSGA-II: pnl (max) vs worst-window drawdown (min) on train ──
+(define (nsga-eval c)
+  (let* ((p (decode (evo:candidate-genome c)))
+         (e (eval-rule (params-rule p) train)))
+    (hash "objectives" (hash "pnl" (hash-ref e "sum") "dd" (hash-ref e "worst-dd"))
+          "constraints" (hash-ref e "constraints"))))
+
+(define HV-REF (list -3000.0 600.0))
+(define (nsga-hv s)
+  (pareto:hypervolume (nsga2:front s) HV-REF (hash "objectives" (list "pnl" "dd")
+                                                    "dirs" (list "max" "min"))))
+
+(define (run-nsga mapper)
+  (fiber:join (fiber:spawn (lambda () (run-nsga* mapper)))))
+(define (run-nsga* mapper)
+  (let ((s (nsga2:make (hash "dim" 4 "pop" NSGA-POP "bounds" (list (list 0.0 1.0))
+                             "seed" SEED "objectives" (list "pnl" "dd")
+                             "dirs" (list "max" "min")))))
+    (let loop ((done 0) (hv (list)) (hist (list)))
+      (if (>= done NSGA-EVALS)
+        (hash "s" s "hv" (reverse hv) "history" (reverse hist))
+        (let* ((cs (nsga2:ask s NSGA-POP))
+               (es (mapper nsga-eval cs)))
+          (nsga2:tell! s cs es)
+          (loop (+ done (length cs))
+                (if (null? (hash-ref s "popu" (list))) hv (cons (nsga-hv s) hv))
+                (append (reverse (map (lambda (c e) (cons (evo:candidate-genome c) e)) cs es)) hist)))))))
+
+(define t0 (monotonic-ms))
+(define ser (run-nsga fiber-map))
+(define t1 (monotonic-ms))
+(define par (run-nsga par-map))
+(define t2 (monotonic-ms))
+(define (front-objs r) (map (lambda (e) (hash-ref e "objs")) (nsga2:front (hash-ref r "s"))))
+;; equal? on two hashes compares identity, so the runs are compared as JSON.
+(define (hist-objs r)
+  (json-encode (map (lambda (h) (list (car h)
+                                      (hash-ref (hash-ref (cdr h) "objectives") "pnl")
+                                      (hash-ref (hash-ref (cdr h) "objectives") "dd")))
+                    (hash-ref r "history"))))
+(define par-same (and (string=? (json-encode (front-objs ser)) (json-encode (front-objs par)))
+                      (string=? (hist-objs ser) (hist-objs par))
+                      (string=? (json-encode (hash-ref ser "hv")) (json-encode (hash-ref par "hv")))))
+(define hv (hash-ref par "hv"))
+(define hv-monotone
+  (let loop ((xs hv)) (cond ((or (null? xs) (null? (cdr xs))) #t)
+                            ((< (car (cdr xs)) (- (car xs) 1e-9)) #f)
+                            (else (loop (cdr xs))))))
+
+;; ── MAP-Elites over regime cells (slope x chop at window start) ──
+(define m (qd:map-elites (hash "descriptors" (list (list "slope" -80 80 4) (list "chop" 0 8 2))
+                               "quality" "pnl" "seed" SEED)))
+(define train-feats (map win-features train))
+;; same grid as the map: slope 4 bins over [-80, 80] pips, chop 2 bins over [0, 8]
+(define (cell-key f)
+  (string-append (number->string (exact (floor (/ (+ (min 79.9 (max -80.0 (hash-ref f "slope"))) 80.0) 40.0))))
+                 "-" (number->string (exact (floor (/ (min 7.9 (hash-ref f "chop")) 4.0))))))
+(define cells
+  (let loop ((fs train-feats) (i 0) (acc (list)))
+    (if (null? fs) (reverse acc)
+      (let* ((k (cell-key (car fs))) (hit (assoc k acc)))
+        (loop (cdr fs) (+ i 1)
+              (if hit (map (lambda (p) (if (equal? (car p) k) (cons k (cons i (cdr p))) p)) acc)
+                (cons (cons k (list i)) acc)))))))
+
+(define (cell-behavior idxs)
+  (hash "slope" (m-mean (map (lambda (i) (hash-ref (list-ref train-feats i) "slope")) idxs))
+        "chop" (m-mean (map (lambda (i) (hash-ref (list-ref train-feats i) "chop")) idxs))))
+
+(define pool
+  (append (list (hash-ref (car (hash-ref (car (hash-ref (p1-report) "searches")) "folds")) "params"))
+          (map (lambda (h) (decode (car h))) (hash-ref par "history"))))
+
+(define pool-evals
+  (par-map (lambda (p) (cons p (eval-rule (params-rule p) train))) pool))
+
+(for-each
+  (lambda (pe)
+    (let* ((p (car pe)) (e (cdr pe)) (pn (hash-ref e "pnls")))
+      (if (= 0.0 (violation (hash-ref e "constraints")))
+        (for-each (lambda (cell)
+                    (qd:insert! m (evo:candidate (params-code p) (hash "target" "rule-entry"))
+                                (m-mean (map (lambda (i) (list-ref pn i)) (cdr cell)))
+                                (cell-behavior (cdr cell))))
+                  cells)
+        #f)))
+  pool-evals)
+
+(define elites (qd:elites m))
+(define (code->params code)
+  (let loop ((ps pool)) (cond ((null? ps) #f) ((string=? (params-code (car ps)) code) (car ps)) (else (loop (cdr ps))))))
+(define elite-members
+  (let loop ((es elites) (acc (list)) (k 0))
+    (if (null? es) (reverse acc)
+      (let* ((code (evo:candidate-genome (hash-ref (car es) "cand")))
+             (p (code->params code)))
+        (if (or (not p) (pair? (filter (lambda (x) (equal? (hash-ref x "params") p)) acc)))
+          (loop (cdr es) acc k)
+          (loop (cdr es) (cons (switch-member (string-append "elite-" (hash-ref (car es) "cell")) p) acc) (+ k 1)))))))
+
+;; ── portfolio + selector, before and after the evolved members ──
+(define (factory mem)
+  (let ((r (member-closure mem)))
+    (lambda (inst ctx) (hash-ref (sim-win r inst) "pnl"))))
+
+(define (build-pf members)
+  (foldl (lambda (pf mem) (portfolio:add! pf (hash-ref mem "name") (factory mem)))
+         (portfolio:make (hash "sense" "max")) members))
+
+(define (fit-selector members . rest)
+  (let* ((opts (if (pair? rest) (car rest) (hash "model" "knn" "k" 1 "sense" "max")))
+         (pf (build-pf members))
+         (mtx (fiber:join (fiber:spawn (lambda () (portfolio:matrix pf train (hash "seeds" (list 1)))))))
+         (sel (select:offline
+                (select:features-fn! (select:make opts) win-features)
+                mtx (hash))))
+    (hash "pf" pf "mtx" mtx "sel" sel "report" (select:report sel))))
+
+(define base-members (shipped-members))
+;; P1's ES candidate (fold 7 params) joins as a member even when its
+;; commit was rolled back: the selector gate below judges it again.
+(define p1-member (switch-member "p1-es" (hash-ref (hash-ref (p1-report) "commit") "params")))
+(define all-members (append base-members (list (switch-member "shipped" BASE-PARAMS) p1-member) elite-members))
+
+(define fit-base (fit-selector base-members))
+(define fit-all (fit-selector all-members))
+;; The shipped selector is kNN k=1 and stays the primary one. k=3 and the
+;; decision stump are reported next to it, not picked after the fact.
+(define fit-k3 (fit-selector all-members (hash "model" "knn" "k" 3 "sense" "max")))
+(define fit-tree (fit-selector all-members (hash "model" "tree" "sense" "max")))
+
+(define (find-member members name)
+  (let loop ((ms members)) (if (string=? (hash-ref (car ms) "name") name) (car ms) (loop (cdr ms)))))
+
+(define (sbs-name fit)
+  (let* ((rep (hash-ref fit "report")) (names (hash-ref rep "members")) (pm (hash-ref rep "per-member")))
+    (let loop ((ns names) (vs pm) (bn #f) (bv -1e18))
+      (if (null? ns) bn (if (> (car vs) bv) (loop (cdr ns) (cdr vs) (car ns) (car vs)) (loop (cdr ns) (cdr vs) bn bv))))))
+
+;; Out of sample, online: choose from features at window start, realise
+;; the window, feed the result back. Windows in time order (5, 6, 7).
+(define (online-run fit members)
+  (let ((sel (hash-ref fit "sel")))
+    (let loop ((ws test) (acc (list)) (drift (list)))
+      (if (null? ws) (hash "rows" (reverse acc) "drift" (reverse drift))
+        (let* ((inst (car ws))
+               (xs (select:choose sel inst 1))
+               (name (if (pair? xs) (car xs) (hash-ref (car members) "name")))
+               (pnl (hash-ref (sim-win (member-closure (find-member members name)) inst) "pnl")))
+          (select:feedback! sel inst name pnl)
+          (loop (cdr ws) (cons (hash "window" (hash-ref inst "id") "member" name "pnl" pnl) acc)
+                (cons (list (m-round (select:drift-score sel) 3) (select:drift? sel)) drift)))))))
+
+(define test-order (sort test (lambda (a b) (< (hash-ref a "w") (hash-ref b "w")))))
+(set! test test-order)
+
+(define on-all (online-run fit-all all-members))
+(define on-base (online-run fit-base base-members))
+(define sbs-all (sbs-name fit-all))
+(define sbs-rule (member-closure (find-member all-members sbs-all)))
+(define sbs-oos (map (lambda (w) (hash-ref (sim-win sbs-rule w) "pnl")) test))
+(define sel-oos (map (lambda (r) (hash-ref r "pnl")) (hash-ref on-all "rows")))
+(define base-sel-oos (map (lambda (r) (hash-ref r "pnl")) (hash-ref on-base "rows")))
+(define gate-sbs (tune:gate sel-oos sbs-oos (hash "alpha" 0.05)))
+(define gate-vs-base (tune:gate sel-oos base-sel-oos (hash "alpha" 0.05)))
+(define drift-flags (length (filter (lambda (d) (car (cdr d))) (hash-ref on-all "drift"))))
+
+(define (r2 x) (m-round x 2))
+(define (rep-row fit)
+  (let ((r (hash-ref fit "report")))
+    (hash "members" (length (hash-ref r "members")) "sbs" (r2 (hash-ref r "sbs"))
+          "vbs" (r2 (hash-ref r "vbs")) "loo" (r2 (hash-ref r "loo"))
+          "gap-closure" (m-round (hash-ref r "gap-closure") 3))))
+
+(define report
+  (hash "train-tasks" (length train) "test-tasks" (length test)
+        "disjoint" disjoint "leak-caught" leak-caught
+        "nsga2" (hash "evals" NSGA-EVALS "pop" NSGA-POP
+                      "front" (map (lambda (o) (map r2 o)) (front-objs par))
+                      "hv" (map r2 hv) "hv-monotone" hv-monotone
+                      "parallel-same" par-same)
+        "map-elites" (hash "cells-filled" (length elites) "coverage" (m-round (qd:coverage m) 3)
+                           "qd-score" (r2 (qd:qd-score m))
+                           "elites" (map (lambda (e) (hash "cell" (hash-ref e "cell")
+                                                           "quality" (r2 (hash-ref e "quality"))
+                                                           "code" (evo:candidate-genome (hash-ref e "cand"))))
+                                         elites))
+        "members" (map member->json all-members)
+        "selector-base" (rep-row fit-base)
+        "selector-all" (rep-row fit-all)
+        "selector-all-knn3" (rep-row fit-k3)
+        "selector-all-tree" (rep-row fit-tree)
+        "sbs-member" sbs-all
+        "oos" (hash "selector" (r2 (m-sum sel-oos)) "sbs" (r2 (m-sum sbs-oos))
+                    "base-selector" (r2 (m-sum base-sel-oos))
+                    "gate-vs-sbs" (hash "keep" (hash-ref gate-sbs "keep") "t" (r2 (hash-ref gate-sbs "t"))
+                                        "crit" (hash-ref gate-sbs "crit"))
+                    "gate-vs-base-selector" (hash "keep" (hash-ref gate-vs-base "keep")
+                                                  "t" (r2 (hash-ref gate-vs-base "t"))))
+        "online" (hash "rows" (map (lambda (r) (hash "window" (hash-ref r "window") "member" (hash-ref r "member")
+                                                      "pnl" (r2 (hash-ref r "pnl"))))
+                                   (hash-ref on-all "rows"))
+                       "drift" (hash-ref on-all "drift") "drift-flags" drift-flags)))
+
+(write-file "out/p3.json" (json-encode report))
+(write-file "out/p3-timing.json" (json-encode (hash "nsga-serial-ms" (- t1 t0) "nsga-parallel-ms" (- t2 t1)
+                                                    "workers" PAR-WORKERS)))
+
+(display "P3 tasks train=") (display (length train)) (display " test=") (display (length test))
+(display " disjoint=") (display disjoint) (display " leak-caught=") (display leak-caught) (newline)
+(display "P3 nsga2 evals=") (display NSGA-EVALS) (display " serial-ms=") (display (- t1 t0))
+(display " parallel-ms=") (display (- t2 t1)) (display " same=") (display par-same) (newline)
+(display "P3 nsga2 front=") (display (length (front-objs par))) (display " hv=") (display (map r2 hv))
+(display " monotone=") (display hv-monotone) (newline)
+(display "P3 map-elites cells=") (display (length elites)) (display " members-added=") (display (length elite-members)) (newline)
+(display "P3 selector base gap=") (display (hash-ref (rep-row fit-base) "gap-closure"))
+(display " all gap=") (display (hash-ref (rep-row fit-all) "gap-closure"))
+(display " members=") (display (length all-members))
+(display " knn3 gap=") (display (hash-ref (rep-row fit-k3) "gap-closure"))
+(display " tree gap=") (display (hash-ref (rep-row fit-tree) "gap-closure")) (newline)
+(display "P3 oos selector=") (display (r2 (m-sum sel-oos))) (display " sbs(") (display sbs-all) (display ")=")
+(display (r2 (m-sum sbs-oos))) (display " t=") (display (r2 (hash-ref gate-sbs "t")))
+(display "/") (display (hash-ref gate-sbs "crit")) (display " keep=") (display (hash-ref gate-sbs "keep")) (newline)
+(display "P3 oos base-selector=") (display (r2 (m-sum base-sel-oos))) (display " drift-flags=") (display drift-flags) (newline)
+(display "P3_OK") (newline)

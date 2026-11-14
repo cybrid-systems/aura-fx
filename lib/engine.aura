@@ -1,0 +1,223 @@
+;; Rules, the window simulator, risk limits and the live rule slot.
+;;
+;; A rule is (lambda (t i prev) -> signed lots) over a tape (lib/tapes).
+;; prev is the rule's previous output. The book is the paper book of
+;; lib/book: a buy fills at mid + HALF, a sell at mid - HALF, open
+;; inventory is marked at the mid. Every window starts flat.
+;;
+;; The live entry rule is one workspace define, rule-entry. It is the
+;; only name hot-strategy swaps (std/hot-strategy keeps one active name).
+;; The risk limits are workspace defines too, so a proposal that tries
+;; to rewrite them is caught by name (prop:check-proposal "protected").
+
+(require "lib/tapes")
+(require "lib/metrics")
+(require "std/mutate" all:)
+(require "std/hot-strategy" all:)
+
+(define ELOT 10000)
+(define EHALF 0.00008)
+
+;; ── risk limits (defaults; the workspace copies are authoritative) ──
+;; max |position| 1 lot; worst window drawdown 150 quote units (the
+;; shipped rule's worst on the seed-7 tapes is about 105); at most 24
+;; orders in a 40-bar window (it peaks at 20; flipping every bar is 40).
+;; The live loop heals when drawdown since the last swap passes 75: half
+;; the window limit, because a fresh swap has not earned the full budget.
+(define RISK-MAX-POS 10000)
+(define RISK-MAX-DD 150.0)
+(define RISK-MAX-ORDERS 24)
+(define RISK-HEAL-DD 75.0)
+(define RISK-NAMES (list "risk-max-pos" "risk-max-dd" "risk-max-orders"
+                         "risk-heal-dd" "risk-constraints"))
+
+;; ── the parametric rule family ──
+;; Below chop cs the tape is trending: follow price vs SMA(n) past tht
+;; pips. At or above cs it is choppy: fade price vs SMA(n) past thm pips.
+(define (rule-switch t i prev n tht thm cs lots)
+  (let ((d (* 10000.0 (- (tape-px t i) (tape-sma t i n))))
+        (c (tape-chop t i)))
+    (if (>= c cs)
+      (cond ((> d thm) (- lots)) ((< d (- thm)) lots) (else 0))
+      (cond ((> d tht) lots) ((< d (- tht)) (- lots)) (else 0)))))
+
+(define (rule-breakout t i prev n lots)
+  (let ((p (tape-px t i)))
+    (cond ((> p (tape-hi t i n)) lots)
+          ((< p (tape-lo t i n)) (- lots))
+          (else prev))))
+
+;; Genome: four numbers in [0, 1] -> (n tht thm cs). Rounded so the
+;; code text and the closure are the same rule.
+(define (clip01 x) (if (< x 0.0) 0.0 (if (> x 1.0) 1.0 x)))
+(define (decode g)
+  (let ((g0 (clip01 (list-ref g 0))) (g1 (clip01 (list-ref g 1)))
+        (g2 (clip01 (list-ref g 2))) (g3 (clip01 (list-ref g 3))))
+    (list (exact (round (+ 4.0 (* 20.0 g0))))
+          (m-round (+ 0.5 (* 9.5 g1)) 2)
+          (m-round (+ 2.0 (* 18.0 g2)) 2)
+          (exact (round (+ 2.0 (* 14.0 g3)))))))
+
+;; The rule the repo shipped: trend 8/2.5, meanrev 8/6.0, switch at chop 8.
+(define BASE-PARAMS (list 8 2.5 6.0 8))
+
+(define (params-rule p . rest)
+  (let ((lots (if (pair? rest) (car rest) 1))
+        (n (list-ref p 0)) (tht (list-ref p 1)) (thm (list-ref p 2)) (cs (list-ref p 3)))
+    (lambda (t i prev) (rule-switch t i prev n tht thm cs lots))))
+
+(define (num->text x)
+  (if (integer? x) (number->string x) (number->string (exact->inexact x))))
+
+(define (params-code p . rest)
+  (let ((lots (if (pair? rest) (car rest) 1)))
+    (string-append "(lambda (t i prev) (rule-switch t i prev "
+                   (num->text (list-ref p 0)) " " (num->text (list-ref p 1)) " "
+                   (num->text (list-ref p 2)) " " (num->text (list-ref p 3)) " "
+                   (num->text lots) "))")))
+
+;; ── the window simulator ──
+;; Returns pnl, max-dd (within the window, marked at the mid each bar),
+;; orders, max-pos (base units). With keep-orders #t also the order list.
+(define (esgn x) (cond ((> x 0) 1) ((< x 0) -1) (else 0)))
+(define (eabs x) (if (< x 0) (- x) x))
+
+(define (efill pos avg realized q p)
+  (cond
+    ((= q 0) (list pos avg realized))
+    ((or (= pos 0) (= (esgn q) (esgn pos)))
+     (let ((np (+ pos q))) (list np (/ (+ (* avg pos) (* p q)) np) realized)))
+    (else
+     (let* ((closing (if (< (eabs q) (eabs pos)) (eabs q) (eabs pos)))
+            (r2 (+ realized (if (> pos 0) (* (- p avg) closing) (* (- avg p) closing))))
+            (np (+ pos q)))
+       (cond ((= np 0) (list 0 0.0 r2))
+             ((= (esgn pos) (esgn np)) (list np avg r2))
+             (else (list np p r2)))))))
+
+(define (emark realized pos avg mid)
+  (cond ((= pos 0) realized)
+        ((> pos 0) (+ realized (* (- mid avg) pos)))
+        (else (+ realized (* (- avg mid) (eabs pos))))))
+
+(define (sim rule t from to)
+  (let loop ((i from) (pos 0) (avg 0.0) (real 0.0) (prev 0)
+             (peak 0.0) (dd 0.0) (n 0) (mp 0))
+    (if (>= i to)
+      (hash "pnl" (emark real pos avg (tape-px t (- to 1)))
+            "max-dd" dd "orders" n "max-pos" mp)
+      (let* ((want (rule t i prev))
+             (w (if (integer? want) want 0))
+             (delta (- (* w ELOT) pos))
+             (mid (tape-px t i)))
+        (if (= delta 0)
+          (let* ((eq (emark real pos avg mid)) (pk (if (> eq peak) eq peak)))
+            (loop (+ i 1) pos avg real w pk (if (> (- pk eq) dd) (- pk eq) dd) n mp))
+          (let* ((px (if (> delta 0) (+ mid EHALF) (- mid EHALF)))
+                 (f (efill pos avg real delta px))
+                 (np (car f))
+                 (eq (emark (list-ref f 2) np (list-ref f 1) mid))
+                 (pk (if (> eq peak) eq peak)))
+            (loop (+ i 1) np (list-ref f 1) (list-ref f 2) w pk
+                  (if (> (- pk eq) dd) (- pk eq) dd) (+ n 1)
+                  (if (> (eabs np) mp) (eabs np) mp))))))))
+
+(define (sim-win rule wn)
+  (sim rule (hash-ref wn "tape") (hash-ref wn "from") (hash-ref wn "to")))
+
+;; ── parallel map over fibers (order-preserving) ──
+(define (chunk xs k)
+  (let* ((n (length xs)) (size (max 1 (quotient (+ n k -1) k))))
+    (let loop ((ys xs) (cur (list)) (c 0) (acc (list)))
+      (cond ((null? ys) (reverse (if (null? cur) acc (cons (reverse cur) acc))))
+            ((= c size) (loop ys (list) 0 (cons (reverse cur) acc)))
+            (else (loop (cdr ys) (cons (car ys) cur) (+ c 1) acc))))))
+
+(define PAR-WORKERS 8)
+(define (par-map f xs)
+  (if (< (length xs) 2) (map f xs)
+    (let* ((parts (chunk xs PAR-WORKERS))
+           (fibers (map (lambda (part) (fiber:spawn (lambda () (map f part)))) parts)))
+      (apply append (map fiber:join fibers)))))
+
+;; The same map in ONE fiber: the serial baseline for par-map. On nightly
+;; 856727cc, once any fiber has run, allocation on the main thread is
+;; several times slower (a hash-heavy loop: 0.57 s -> 2.9 s after one
+;; fiber, 20 s after eight), while the same loop inside a fiber is not.
+;; So heavy serial work runs in a fiber too, and the comparison is fair.
+(define (fiber-map f xs) (fiber:join (fiber:spawn (lambda () (map f xs)))))
+
+;; ── evaluation over a window set ──
+;; pnls: per-window pnl; constraints: excess over each risk limit (0 = ok).
+(define (risk-constraints rs)
+  (let ((mp (apply max (cons 0 (map (lambda (r) (hash-ref r "max-pos")) rs))))
+        (dd (apply max (cons 0.0 (map (lambda (r) (hash-ref r "max-dd")) rs))))
+        (no (apply max (cons 0 (map (lambda (r) (hash-ref r "orders")) rs)))))
+    (hash "max-pos" (if (> mp (risk-max-pos)) (/ (* 1.0 (- mp (risk-max-pos))) ELOT) 0.0)
+          "max-dd" (if (> dd (risk-max-dd)) (- dd (risk-max-dd)) 0.0)
+          "order-rate" (if (> no (risk-max-orders)) (* 1.0 (- no (risk-max-orders))) 0.0))))
+
+(define (eval-rule rule ws)
+  (let* ((rs (map (lambda (wn) (sim-win rule wn)) ws))
+         (pnls (map (lambda (r) (hash-ref r "pnl")) rs)))
+    (hash "pnls" pnls "sum" (m-sum pnls) "sharpe" (m-sharpe pnls)
+          "worst-dd" (apply max (cons 0.0 (map (lambda (r) (hash-ref r "max-dd")) rs)))
+          "max-orders" (apply max (cons 0 (map (lambda (r) (hash-ref r "orders")) rs)))
+          "max-pos" (apply max (cons 0 (map (lambda (r) (hash-ref r "max-pos")) rs)))
+          "constraints" (risk-constraints rs))))
+
+(define (violation c)
+  (+ (hash-ref c "max-pos" 0.0) (hash-ref c "max-dd" 0.0) (hash-ref c "order-rate" 0.0)))
+
+;; ── the live workspace ──
+;; Installs rule-entry and the risk limits as workspace defines (set-code
+;; once, before any search), and registers rule-entry with hot-strategy.
+(define (boot! entry-code)
+  (set-code
+    (string-append
+      "(define rule-entry " entry-code ")\n"
+      "(define (risk-max-pos) " (number->string RISK-MAX-POS) ")\n"
+      "(define (risk-max-dd) " (number->string RISK-MAX-DD) ")\n"
+      "(define (risk-max-orders) " (number->string RISK-MAX-ORDERS) ")\n"
+      "(define (risk-heal-dd) " (number->string RISK-HEAL-DD) ")\n"))
+  (eval-current)
+  (hot-strategy:register! "rule-entry" entry-code))
+
+;; The live rule, read through the workspace binding on every call.
+(define (live-rule t i prev) (rule-entry t i prev))
+
+;; ── session orders (the shape bridge/fc_adapter.py replays) ──
+(define (order-hash seq bar delta mid tag audit)
+  (let ((h (hash "seq" seq "bar" bar "instrument" "EUR/USD" "account" ""
+                 "command" "CreateOrder" "order_type" "OM"
+                 "buy_sell" (if (> delta 0) "B" "S") "amount" (eabs delta)
+                 "rate" mid "time_in_force" "IOC" "tag" tag)))
+    (if (hash? audit)
+      (foldl (lambda (acc k) (hash-set acc k (hash-ref audit k))) h (hash-keys audit))
+      h)))
+
+(define (session-hash orders pnl pos mark maxdd)
+  (hash "broker" "paper" "instrument" "EUR/USD" "lot" ELOT "half-spread" EHALF
+        "mark" mark "pnl" pnl "pos" pos "max-dd" maxdd "orders" orders))
+
+;; Run a rule over bars [from, to) of one tape and keep every order.
+(define (sim-session rule t from to tag)
+  (let loop ((i from) (pos 0) (avg 0.0) (real 0.0) (prev 0) (orders (list)) (seq 0)
+             (peak 0.0) (dd 0.0))
+    (if (>= i to)
+      (session-hash (reverse orders) (emark real pos avg (tape-px t (- to 1))) pos
+                    (tape-px t (- to 1)) dd)
+      (let* ((want (rule t i prev))
+             (w (if (integer? want) want 0))
+             (delta (- (* w ELOT) pos))
+             (mid (tape-px t i)))
+        (if (= delta 0)
+          (let* ((eq (emark real pos avg mid)) (pk (if (> eq peak) eq peak)))
+            (loop (+ i 1) pos avg real w orders seq pk (if (> (- pk eq) dd) (- pk eq) dd)))
+          (let* ((px (if (> delta 0) (+ mid EHALF) (- mid EHALF)))
+                 (f (efill pos avg real delta px))
+                 (eq (emark (list-ref f 2) (car f) (list-ref f 1) mid))
+                 (pk (if (> eq peak) eq peak)))
+            (loop (+ i 1) (car f) (list-ref f 1) (list-ref f 2) w
+                  (cons (order-hash seq i delta mid tag #f) orders) (+ seq 1)
+                  pk (if (> (- pk eq) dd) (- pk eq) dd))))))))

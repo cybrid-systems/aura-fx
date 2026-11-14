@@ -1,0 +1,298 @@
+;; Walk-forward search and the out-of-sample gates.
+;;
+;; Folds are anchored: fold k trains on windows 1..k-1 of every tape and
+;; tests on window k. Window 0 is warm-up only. Each window is tested by
+;; parameters fitted on bars before it, never on itself.
+;;
+;; A candidate is KEPT only when
+;;   1. it is feasible (risk limits, measured in a child worldline),
+;;   2. tune:gate (paired t-test, alpha 0.05) says its out-of-sample
+;;      window pnl beats the live rule's on the same windows, and
+;;   3. its deflated Sharpe (lib/metrics) is above 0, charged for every
+;;      candidate the search scored.
+;; Otherwise it is ROLLED BACK. evo:commit! writes either one to the evo log.
+
+(require "lib/engine")
+(require "std/search" all:)
+(require "std/hyper-heuristic" all:)
+(require "std/evo-core" all:)
+
+(define WF-FOLDS (list 5 6 7))
+
+(define (range-list a b)
+  (let loop ((k (- b 1)) (acc (list))) (if (< k a) acc (loop (- k 1) (cons k acc)))))
+
+(define (fold-train tapes k) (wins tapes (range-list 1 k)))
+(define (fold-test tapes k) (wins tapes (list k)))
+
+;; search:init options per kind. Genome is 4 numbers in [0, 1].
+(define (search-opts kind seed pop)
+  (let ((b (list (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0))))
+    (cond
+      ((string=? kind "es")
+       (hash "dim" 4 "pop" pop "mu" 4 "lambda" pop "sigma" 0.15 "bounds" b "seed" seed))
+      ((string=? kind "pso")
+       (hash "dim" 4 "pop" pop "w" 0.7 "c1" 1.5 "c2" 1.5 "bounds" b "seed" seed))
+      ((string=? kind "abc")
+       (hash "dim" 4 "pop" pop "limit" 5 "bounds" b "seed" seed))
+      (else (hash "dim" 4 "pop" pop "bounds" b "seed" seed)))))
+
+;; Score of a genome on the train windows: pnl, minus 1000 per unit of
+;; risk violation so the search stays inside the limits.
+(define (fit-genome train)
+  (lambda (g)
+    (let* ((p (decode g))
+           (e (eval-rule (params-rule p) train))
+           (v (violation (hash-ref e "constraints"))))
+      (hash "genome" g "params" p "score" (- (hash-ref e "sum") (* 1000.0 v))
+            "sum" (hash-ref e "sum") "sharpe" (hash-ref e "sharpe") "violation" v))))
+
+(define (take-n xs n) (if (or (null? xs) (<= n 0)) (list) (cons (car xs) (take-n (cdr xs) (- n 1)))))
+
+;; Run one search for exactly `budget` scored candidates. Candidates of a
+;; batch are scored in parallel (par-map) and told back in order, so the
+;; result is the serial result. Returns best params and the history.
+(define (run-search kind seed budget pop fit mapper)
+  (let loop ((st (search:init kind (search-opts kind seed pop))) (used 0) (hist (list)))
+    (if (>= used budget)
+      (let* ((sorted (sort (reverse hist) (lambda (a b) (> (hash-ref a "score") (hash-ref b "score")))))
+             (best (car sorted)))
+        (hash "kind" kind "best" best "history" (reverse hist) "evals" used))
+      (let* ((pend (take-n (search:pending st) (- budget used)))
+             (rs (mapper fit pend))
+             (st2 (let step ((s st) (xs rs))
+                    (if (null? xs) s (step (search:step s (hash-ref (car xs) "score")) (cdr xs))))))
+        (loop st2 (+ used (length rs)) (append (reverse rs) hist))))))
+
+;; Walk-forward over WF-FOLDS. Returns per-fold best params, the
+;; out-of-sample pnl of each fold's params on its test windows, and the
+;; Sharpe of every scored candidate (for the deflated metric).
+(define (walk-forward kind seed tapes budget pop mapper)
+  (let loop ((ks WF-FOLDS) (folds (list)) (oos (list)) (srs (list)) (n 0))
+    (if (null? ks)
+      (hash "kind" kind "folds" (reverse folds) "oos" oos "trial-srs" srs "evals" n)
+      (let* ((k (car ks))
+             (train (fold-train tapes k))
+             (test (fold-test tapes k))
+             (r (run-search kind (+ (* seed 1000) k) budget pop (fit-genome train) mapper))
+             (best (hash-ref r "best"))
+             (p (hash-ref best "params"))
+             (te (eval-rule (params-rule p) test)))
+        (loop (cdr ks)
+              (cons (hash "fold" k "params" p "train-sum" (hash-ref best "sum")
+                          "train-violation" (hash-ref best "violation")
+                          "test-pnls" (hash-ref te "pnls") "test-sum" (hash-ref te "sum")
+                          "test-constraints" (hash-ref te "constraints"))
+                    folds)
+              (append oos (hash-ref te "pnls"))
+              (append srs (map (lambda (h) (hash-ref h "sharpe")) (hash-ref r "history")))
+              (+ n (hash-ref r "evals")))))))
+
+;; The live rule's out-of-sample pnl on the same test windows.
+(define (baseline-oos tapes params)
+  (let loop ((ks WF-FOLDS) (acc (list)))
+    (if (null? ks) acc
+      (loop (cdr ks)
+            (append acc (hash-ref (eval-rule (params-rule params) (fold-test tapes (car ks))) "pnls"))))))
+
+(define (oos-gate cand base trial-srs)
+  (let* ((g (tune:gate cand base (hash "alpha" 0.05 "sense" "max")))
+         (d (m-deflated cand trial-srs))
+         (keep (and (hash-ref g "keep") (> (hash-ref d "deflated") 0.0))))
+    (hash "keep" keep "gate-keep" (hash-ref g "keep") "t" (hash-ref g "t")
+          "crit" (hash-ref g "crit") "df" (hash-ref g "df") "n" (hash-ref g "n")
+          "mean-diff" (hash-ref g "mean-diff")
+          "sr" (hash-ref d "sr") "sr0" (hash-ref d "sr0") "deflated" (hash-ref d "deflated")
+          "dsr" (hash-ref d "dsr") "trials" (hash-ref d "trials"))))
+
+;; ── commit through evo-core ──
+;; apply refuses any target that is not rule-*, then rebinds it. evo:trial
+;; calls it in a child workspace; evo:commit! calls hot-strategy:swap!.
+(define (rule-target? c)
+  (let ((t (evo:candidate-target c)))
+    (and (string? t) (>= (string-length t) 5) (string=? (substring t 0 5) "rule-"))))
+
+(define (trial-apply s c)
+  (and (rule-target? c)
+       (eq? (mutate :rebind (evo:candidate-target c) (evo:candidate-genome c) "trial") #t)))
+
+(define (live-apply s c)
+  (and (rule-target? c)
+       (car (hot-strategy:swap! (evo:candidate-target c) (evo:candidate-genome c)
+                                (string-append "evo:" (evo:candidate-id c))))))
+
+;; Measure the candidate's code in a child worldline on `ws`. The live
+;; worldline is not written; the trial result says so ("live-unchanged").
+(define (trial-measure cand ws)
+  (evo:trial cand
+    (hash "apply" trial-apply
+          "evaluate" (lambda (c)
+                       (let ((e (eval-rule live-rule ws)))
+                         (hash "objectives" (hash "sum" (hash-ref e "sum"))
+                               "constraints" (hash-ref e "constraints")
+                               "behavior" (hash "worst-dd" (hash-ref e "worst-dd")
+                                                "max-orders" (hash-ref e "max-orders")
+                                                "max-pos" (hash-ref e "max-pos")))))
+          "timeout-ms" 20000 "preset" "dev")))
+
+(define (gate-accept s c ev)
+  (= 1 (evo:objective ev "gate-keep")))
+
+(define (commit-search algo seed)
+  (evo:search (hash "algo" algo "seed" seed "budget" 0
+                    "objectives" (list (cons "oos-sum" "max"))
+                    "constraints" (list "max-pos" "max-dd" "order-rate" "trial" "scope")
+                    "target" "rule-entry"
+                    "apply" live-apply "accept" gate-accept)))
+
+;; ev for commit!: trial constraints + "trial" (1 when the trial failed),
+;; objectives carry the gate numbers so the log shows why.
+(define (commit-eval trial gate oos-sum)
+  (let ((cs (hash-ref trial "constraints" (hash))))
+    (hash "objectives" (hash "oos-sum" oos-sum
+                             "gate-keep" (if (hash-ref gate "keep") 1 0)
+                             "gate-t" (hash-ref gate "t")
+                             "deflated" (hash-ref gate "deflated"))
+          "constraints" (hash "max-pos" (hash-ref cs "max-pos" 0.0)
+                              "max-dd" (hash-ref cs "max-dd" 0.0)
+                              "order-rate" (hash-ref cs "order-rate" 0.0)
+                              "trial" (if (evo:trial-ok? trial) 0.0 1.0)
+                              "scope" 0.0)
+          "behavior" (hash-ref trial "behavior" (hash)))))
+
+;; ── proposal guard ──
+;; prop:check-proposal checks define NAMES: every define must be rule-*
+;; and none may be a risk define. It does not look inside a body, so a
+;; rule-entry body that calls eval or set! on a risk define passes it
+;; (measured on nightly 856727cc). This second scan refuses any genome
+;; that mentions set!, eval, a risk-* name, mutate or hot-strategy.
+(require "std/proposer" all:)
+(require "std/string" all:)
+
+(define (rule-ctx)
+  (prop:ctx (hash "defines" (list "rule-entry" "rule-aux")
+                  "protected" RISK-NAMES
+                  "max-nodes" 400 "max-chars" 4096)))
+
+(define GUARD-WORDS (list "set!" "eval" "risk-" "mutate" "hot-strategy" "set-code"
+                          "define-syntax" "getenv" "write-file"))
+
+(define (body-guard g)
+  (let loop ((ws GUARD-WORDS))
+    (cond ((null? ws) #f)
+          ((string-contains? g (car ws)) (string-append "guard: " (car ws)))
+          (else (loop (cdr ws))))))
+
+;; #f when the proposal may be measured, else the refusal reason.
+(define (proposal-refusal genome ctx)
+  (let ((p (prop:check-proposal (hash "genome" genome "thought" "") ctx)))
+    (if p p (body-guard genome))))
+
+;; Wrap a lambda genome as the define prop:check-proposal expects.
+(define (as-define code)
+  (if (and (>= (string-length code) 7) (string=? (substring code 0 7) "(lambda"))
+    (string-append "(define rule-entry " code ")")
+    code))
+
+;; Trial that also returns the out-of-sample window pnl (behavior "oos").
+(define (trial-measure-oos cand ws oos-ws)
+  (evo:trial cand
+    (hash "apply" trial-apply
+          "evaluate" (lambda (c)
+                       (let ((e (eval-rule live-rule ws))
+                             (o (eval-rule live-rule oos-ws)))
+                         (hash "objectives" (hash "sum" (hash-ref e "sum") "oos-sum" (hash-ref o "sum")
+                                                  "sharpe" (hash-ref e "sharpe"))
+                               "constraints" (risk-constraints-merge (hash-ref e "constraints")
+                                                                     (hash-ref o "constraints"))
+                               "behavior" (hash "worst-dd" (max (hash-ref e "worst-dd") (hash-ref o "worst-dd"))
+                                                "max-orders" (max (hash-ref e "max-orders") (hash-ref o "max-orders"))
+                                                "max-pos" (max (hash-ref e "max-pos") (hash-ref o "max-pos"))
+                                                "oos" (hash-ref o "pnls")))))
+          "timeout-ms" 20000 "preset" "dev")))
+
+(define (risk-constraints-merge a b)
+  (hash "max-pos" (max (hash-ref a "max-pos" 0.0) (hash-ref b "max-pos" 0.0))
+        "max-dd" (max (hash-ref a "max-dd" 0.0) (hash-ref b "max-dd" 0.0))
+        "order-rate" (max (hash-ref a "order-rate" 0.0) (hash-ref b "order-rate" 0.0))))
+
+;; Names of the constraints a candidate broke, in a stable order.
+(define (violated-names cs)
+  (let loop ((ks (sort (hash-keys cs) string<?)) (acc ""))
+    (if (null? ks) acc
+      (loop (cdr ks)
+            (if (> (hash-ref cs (car ks)) 0.0)
+              (if (string=? acc "") (car ks) (string-append acc "," (car ks)))
+              acc)))))
+
+;; One candidate through every gate, in order:
+;;   guard (prop:check-proposal + body scan) -> evo:trial in a child
+;;   worldline -> risk constraints (evo:feasible?) -> tune:gate + deflated
+;;   -> evo:commit! (KEEP swaps rule-entry via hot-strategy; ROLLBACK is
+;;   written to the evo log with the reason).
+;; measure-candidate runs the first two steps; decide-candidate! the rest,
+;; so a caller can measure a whole batch before it knows the trial count
+;; the deflated Sharpe has to charge for.
+(define (measure-candidate cand ws oos-ws)
+  (let* ((genome (evo:candidate-genome cand))
+         (refusal (proposal-refusal (as-define genome) (rule-ctx))))
+    (if refusal
+      (hash "cand" cand "refusal" refusal "ok" #f "trial" "skipped")
+      (let* ((tr (trial-measure-oos cand ws oos-ws))
+             (ok (evo:trial-ok? tr)))
+        (hash "cand" cand "refusal" #f "ok" ok "trial" (hash-ref tr "status") "tr" tr
+              "live-unchanged" (hash-ref tr "live-unchanged")
+              "train-sum" (if ok (hash-ref (hash-ref tr "objectives") "sum") 0.0)
+              "train-sharpe" (if ok (hash-ref (hash-ref tr "objectives") "sharpe") 0.0)
+              "oos" (if ok (hash-ref (hash-ref tr "behavior") "oos") (list)))))))
+
+(define (decide-candidate! s m base-oos trial-srs)
+  (let ((cand (hash-ref m "cand")))
+    (if (hash-ref m "refusal")
+      (let ((ev (hash "objectives" (hash "gate-keep" 0)
+                      "constraints" (hash "max-pos" 0.0 "max-dd" 0.0 "order-rate" 0.0
+                                          "trial" 0.0 "scope" 1.0)
+                      "behavior" (hash))))
+        (hash "candidate" (evo:candidate-id cand) "refusal" (hash-ref m "refusal") "trial" "skipped"
+              "feasible" (evo:feasible? ev) "gate-keep" #f "train-sum" 0.0 "oos-sum" 0.0
+              "mean-diff" 0.0 "t" 0.0 "deflated" 0.0
+              "kept" (evo:commit! s cand ev) "reason" (hash-ref m "refusal")))
+      (let* ((tr (hash-ref m "tr"))
+             (ok (hash-ref m "ok"))
+             (oos (hash-ref m "oos"))
+             (gate (if ok (oos-gate oos base-oos trial-srs)
+                     (hash "keep" #f "t" 0.0 "deflated" 0.0 "gate-keep" #f "mean-diff" 0.0)))
+             (ev (commit-eval tr gate (if ok (m-sum oos) 0.0)))
+             (feasible (evo:feasible? ev))
+             (kept (evo:commit! s cand ev)))
+        (hash "candidate" (evo:candidate-id cand) "refusal" #f
+              "trial" (hash-ref m "trial") "live-unchanged" (hash-ref m "live-unchanged")
+              "constraints" (hash-ref ev "constraints") "feasible" feasible
+              "gate-keep" (hash-ref gate "keep") "t" (hash-ref gate "t")
+              "deflated" (hash-ref gate "deflated") "mean-diff" (hash-ref gate "mean-diff")
+              "train-sum" (hash-ref m "train-sum") "oos-sum" (m-sum oos)
+              "kept" kept
+              "reason" (cond ((not ok) (string-append "trial: " (hash-ref m "trial")))
+                             ((not feasible) (string-append "infeasible: " (violated-names (hash-ref ev "constraints"))))
+                             ((not (hash-ref gate "keep")) "gate")
+                             (else "kept")))))))
+
+(define (gate-candidate! s cand ws oos-ws base-oos trial-srs)
+  (let ((m (measure-candidate cand ws oos-ws)))
+    (decide-candidate! s m base-oos
+                       (if (hash-ref m "ok") (append trial-srs (list (hash-ref m "train-sharpe"))) trial-srs))))
+
+;; Evo log lines of this process's run (the run id is the prefix of any
+;; record id this process wrote).
+(define (run-records rid)
+  (let* ((run (car (string-split rid "#")))
+         (lines (string-split (read-file ".aura/evo/log.jsonl") "\n")))
+    (map json-parse
+         (filter (lambda (l) (and (> (string-length l) 0) (string-contains? l run))) lines))))
+
+(define (has-decision? recs cand-id decision)
+  (let loop ((rs recs))
+    (cond ((null? rs) #f)
+          ((and (equal? (hash-ref (car rs) "candidate" "") cand-id)
+                (equal? (hash-ref (car rs) "decision" "") decision)) #t)
+          (else (loop (cdr rs))))))

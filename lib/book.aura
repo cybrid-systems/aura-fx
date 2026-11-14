@@ -102,6 +102,12 @@
                               "amount" (absn delta)
                               "rate" mid
                               "time_in_force" "IOC"
-                              "tag" name)))
+                              "tag" name
+                              ;; audit: what decided this order
+                              "bar" i
+                              "member" name
+                              "features" (window-features prices i)
+                              "rule-rev" 0
+                              "candidate" "fixture-selector")))
               (loop (+ i 1) npos navg nreal want (cons ord orders) (+ seq 1)
                     peak2 maxdd2 (cons name picks)))))))))
