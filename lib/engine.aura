@@ -140,12 +140,6 @@
            (fibers (map (lambda (part) (fiber:spawn (lambda () (map f part)))) parts)))
       (apply append (map fiber:join fibers)))))
 
-;; The same map in ONE fiber: the serial baseline for par-map. On nightly
-;; 856727cc, once any fiber has run, allocation on the main thread is
-;; several times slower (a hash-heavy loop: 0.57 s -> 2.9 s after one
-;; fiber, 20 s after eight), while the same loop inside a fiber is not.
-;; So heavy serial work runs in a fiber too, and the comparison is fair.
-(define (fiber-map f xs) (fiber:join (fiber:spawn (lambda () (map f xs)))))
 
 ;; ── evaluation over a window set ──
 ;; pnls: per-window pnl; constraints: excess over each risk limit (0 = ok).

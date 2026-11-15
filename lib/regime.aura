@@ -1,0 +1,63 @@
+;; A regime selector that only leaves the single best member when the
+;; data says so.
+;;
+;; kNN k=1 over 8 similar members picks the nearest training window's
+;; winner, which is mostly noise. Here every window is put in a regime
+;; cell from the features at the bar before it opens (slope: up / flat /
+;; down, chop: low / high; both cut points are medians of the TRAIN
+;; features). The default is the single best member on train (SBS). In a
+;; cell, another member replaces it only when tune:gate (paired t-test,
+;; alpha 0.10, at least REGIME-MIN windows) says it beats the SBS on the
+;; cell's windows; among those, the largest mean gain wins.
+;; Online: once a test window has closed, every member's pnl on it is
+;; added to its cell (the rules are deterministic, so all of them can be
+;; replayed on the closed window; nothing after it is read).
+
+(require "lib/engine")
+(require "std/hyper-heuristic" all:)
+
+(define REGIME-MIN 3)
+(define REGIME-ALPHA 0.10)
+
+(define (rg-median xs)
+  (let* ((s (sort xs <)) (n (length s)))
+    (if (= n 0) 0.0
+      (if (odd? n) (list-ref s (quotient n 2))
+        (/ (+ (list-ref s (- (quotient n 2) 1)) (list-ref s (quotient n 2))) 2.0)))))
+
+(define (rg-abs x) (if (< x 0) (- x) x))
+
+(define (regime-cuts feats)
+  (hash "slope" (rg-median (map (lambda (f) (rg-abs (hash-ref f "slope"))) feats))
+        "chop" (rg-median (map (lambda (f) (hash-ref f "chop")) feats))))
+
+(define (regime-cell cuts f)
+  (let ((s (hash-ref f "slope")) (sc (hash-ref cuts "slope")))
+    (string-append (cond ((> s sc) "up") ((< s (- sc)) "down") (else "flat"))
+                   (if (>= (hash-ref f "chop") (hash-ref cuts "chop")) "-hi" "-lo"))))
+
+;; rows: list of (cell . (hash member -> pnl)), one per window.
+;; names: member names in a fixed order.
+(define (regime-fit names rows sbs)
+  (hash "names" names "rows" rows "sbs" sbs))
+
+(define (regime-add sel cell pnls)
+  (hash "names" (hash-ref sel "names") "sbs" (hash-ref sel "sbs")
+        "rows" (append (hash-ref sel "rows") (list (cons cell pnls)))))
+
+;; Returns (member . why) for a cell.
+(define (regime-choose sel cell)
+  (let* ((rows (filter (lambda (r) (string=? (car r) cell)) (hash-ref sel "rows")))
+         (sbs (hash-ref sel "sbs"))
+         (base (map (lambda (r) (hash-ref (cdr r) sbs)) rows)))
+    (if (< (length rows) REGIME-MIN)
+      (cons sbs "few")
+      (let loop ((ns (hash-ref sel "names")) (best sbs) (gain 0.0))
+        (if (null? ns)
+          (cons best (if (string=? best sbs) "sbs" "gate"))
+          (let* ((n (car ns))
+                 (xs (map (lambda (r) (hash-ref (cdr r) n)) rows))
+                 (g (tune:gate xs base (hash "alpha" REGIME-ALPHA "sense" "max"))))
+            (if (and (not (string=? n sbs)) (hash-ref g "keep") (> (hash-ref g "mean-diff") gain))
+              (loop (cdr ns) n (hash-ref g "mean-diff"))
+              (loop (cdr ns) best gain))))))))

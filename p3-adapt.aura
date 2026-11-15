@@ -12,6 +12,7 @@
 (require "std/portfolio" all:)
 (require "std/algo-select" all:)
 (require "std/evo-meta" all:)
+(require "lib/regime")
 
 (define SEED 7)
 (define NSGA-POP 16)
@@ -39,8 +40,6 @@
                                                     "dirs" (list "max" "min"))))
 
 (define (run-nsga mapper)
-  (fiber:join (fiber:spawn (lambda () (run-nsga* mapper)))))
-(define (run-nsga* mapper)
   (let ((s (nsga2:make (hash "dim" 4 "pop" NSGA-POP "bounds" (list (list 0.0 1.0))
                              "seed" SEED "objectives" (list "pnl" "dd")
                              "dirs" (list "max" "min")))))
@@ -55,7 +54,7 @@
                 (append (reverse (map (lambda (c e) (cons (evo:candidate-genome c) e)) cs es)) hist)))))))
 
 (define t0 (monotonic-ms))
-(define ser (run-nsga fiber-map))
+(define ser (run-nsga map))
 (define t1 (monotonic-ms))
 (define par (run-nsga par-map))
 (define t2 (monotonic-ms))
@@ -138,7 +137,7 @@
 (define (fit-selector members . rest)
   (let* ((opts (if (pair? rest) (car rest) (hash "model" "knn" "k" 1 "sense" "max")))
          (pf (build-pf members))
-         (mtx (fiber:join (fiber:spawn (lambda () (portfolio:matrix pf train (hash "seeds" (list 1)))))))
+         (mtx (portfolio:matrix pf train (hash "seeds" (list 1))))
          (sel (select:offline
                 (select:features-fn! (select:make opts) win-features)
                 mtx (hash))))
@@ -193,6 +192,50 @@
 (define gate-vs-base (tune:gate sel-oos base-sel-oos (hash "alpha" 0.05)))
 (define drift-flags (length (filter (lambda (d) (car (cdr d))) (hash-ref on-all "drift"))))
 
+;; ── regime selector (lib/regime): SBS unless a cell's own windows say otherwise ──
+(define member-names (map (lambda (m) (hash-ref m "name")) all-members))
+(define member-rules (map member-closure all-members))
+(define (window-pnls wn)
+  (let loop ((ns member-names) (rs member-rules) (h (hash)))
+    (if (null? ns) h (loop (cdr ns) (cdr rs) (hash-set h (car ns) (hash-ref (sim-win (car rs) wn) "pnl"))))))
+(define train-pnls (par-map window-pnls train))
+(define test-pnls (par-map window-pnls test))
+(define rg-cuts (regime-cuts (map win-features train)))
+(define rg-sbs
+  (let loop ((ns member-names) (bn #f) (bv -1e18))
+    (if (null? ns) bn
+      (let ((v (m-sum (map (lambda (h) (hash-ref h (car ns))) train-pnls))))
+        (if (> v bv) (loop (cdr ns) (car ns) v) (loop (cdr ns) bn bv))))))
+(define rg-fit
+  (regime-fit member-names
+              (map (lambda (wn h) (cons (regime-cell rg-cuts (win-features wn)) h)) train train-pnls)
+              rg-sbs))
+;; test windows in time order; the windows of one w (six tapes) are chosen
+;; together and only then added, so no choice sees a window of its own time
+(define (regime-online)
+  (let loop ((ws (map cons test test-pnls)) (sel rg-fit) (acc (list)))
+    (if (null? ws) (reverse acc)
+      (let* ((w (hash-ref (car (car ws)) "w"))
+             (grp (filter (lambda (x) (= (hash-ref (car x) "w") w)) ws))
+             (rest (filter (lambda (x) (not (= (hash-ref (car x) "w") w))) ws))
+             (rows (map (lambda (x)
+                          (let* ((cell (regime-cell rg-cuts (win-features (car x))))
+                                 (c (regime-choose sel cell)))
+                            (hash "window" (hash-ref (car x) "id") "cell" cell "member" (car c)
+                                  "why" (cdr c) "pnl" (hash-ref (cdr x) (car c)))))
+                        grp))
+             (sel2 (foldl (lambda (s x) (regime-add s (regime-cell rg-cuts (win-features (car x))) (cdr x)))
+                          sel grp)))
+        (loop rest sel2 (append (reverse rows) acc))))))
+(define rg-rows (regime-online))
+(define rg-oos (map (lambda (r) (hash-ref r "pnl")) rg-rows))
+(define rg-sbs-oos (map (lambda (h) (hash-ref h rg-sbs)) test-pnls))
+(define gate-rg (tune:gate rg-oos rg-sbs-oos (hash "alpha" 0.05)))
+;; oracle: the best member of every test window, picked after the fact
+(define vbs-oos (map (lambda (h) (apply max (map (lambda (n) (hash-ref h n)) member-names))) test-pnls))
+(define rg-switches (length (filter (lambda (r) (not (string=? (hash-ref r "why") "sbs"))) rg-rows)))
+(define rg-left-sbs (length (filter (lambda (r) (not (string=? (hash-ref r "member") rg-sbs))) rg-rows)))
+
 (define (r2 x) (m-round x 2))
 (define (rep-row fit)
   (let ((r (hash-ref fit "report")))
@@ -228,7 +271,15 @@
         "online" (hash "rows" (map (lambda (r) (hash "window" (hash-ref r "window") "member" (hash-ref r "member")
                                                       "pnl" (r2 (hash-ref r "pnl"))))
                                    (hash-ref on-all "rows"))
-                       "drift" (hash-ref on-all "drift") "drift-flags" drift-flags)))
+                       "drift" (hash-ref on-all "drift") "drift-flags" drift-flags)
+        "regime" (hash "cuts" rg-cuts "sbs" rg-sbs "oos" (r2 (m-sum rg-oos)) "sbs-oos" (r2 (m-sum rg-sbs-oos)) "vbs-oos" (r2 (m-sum vbs-oos))
+                       "gate-vs-sbs" (hash "keep" (hash-ref gate-rg "keep") "t" (r2 (hash-ref gate-rg "t"))
+                                           "crit" (hash-ref gate-rg "crit") "mean-diff" (r2 (hash-ref gate-rg "mean-diff")))
+                       "windows-off-sbs" rg-left-sbs
+                       "rows" (map (lambda (r) (hash "window" (hash-ref r "window") "cell" (hash-ref r "cell")
+                                                     "member" (hash-ref r "member") "why" (hash-ref r "why")
+                                                     "pnl" (r2 (hash-ref r "pnl"))))
+                                   rg-rows))))
 
 (write-file "out/p3.json" (json-encode report))
 (write-file "out/p3-timing.json" (json-encode (hash "nsga-serial-ms" (- t1 t0) "nsga-parallel-ms" (- t2 t1)
@@ -250,4 +301,7 @@
 (display (r2 (m-sum sbs-oos))) (display " t=") (display (r2 (hash-ref gate-sbs "t")))
 (display "/") (display (hash-ref gate-sbs "crit")) (display " keep=") (display (hash-ref gate-sbs "keep")) (newline)
 (display "P3 oos base-selector=") (display (r2 (m-sum base-sel-oos))) (display " drift-flags=") (display drift-flags) (newline)
+(display "P3 regime selector oos=") (display (r2 (m-sum rg-oos))) (display " sbs(") (display rg-sbs) (display ")=")
+(display (r2 (m-sum rg-sbs-oos))) (display " t=") (display (r2 (hash-ref gate-rg "t"))) (display "/") (display (hash-ref gate-rg "crit"))
+(display " keep=") (display (hash-ref gate-rg "keep")) (display " vbs-oracle=") (display (r2 (m-sum vbs-oos))) (display " off-sbs=") (display rg-left-sbs) (display "/") (display (length rg-rows)) (newline)
 (display "P3_OK") (newline)

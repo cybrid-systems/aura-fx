@@ -51,15 +51,10 @@
                                            (tape-noise r sd))))))))
           (loop (+ k 1) np (cons np acc)))))))
 
-;; evo:rng mixes (seed, gen, slot) affinely, so the first draws of
-;; neighbouring streams form an arithmetic progression and small-range
-;; draws repeat in a pattern. The stream seed here is a product of the
-;; three (not affine in any one of them), and it is stepped 8 times.
-(define (tape-rng seed idx s)
-  (let ((r (evo:rng (modulo (* (modulo (* (+ seed 101) (+ idx 7919)) 2147483647) (+ s 104729))
-                            2147483647)
-                    idx s)))
-    (let loop ((k 0)) (if (< k 8) (begin (evo:rng-next! r) (loop (+ k 1))) r))))
+;; One evo:rng stream per (seed, tape, segment). Since aura#5290 the
+;; streams of neighbouring gen/slot values are independent, so no extra
+;; mixing or burn-in is needed.
+(define (tape-rng seed idx s) (evo:rng seed idx s))
 
 (define (tape-prices seed idx)
   (let loop ((s 0) (p 1.10000) (acc (list)) (regs (list)) (last -1))
