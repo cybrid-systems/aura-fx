@@ -1,0 +1,113 @@
+;; Frozen out-of-sample check (frozen/v1.json).
+;;
+;; Everything the check uses is read from the frozen spec: the member
+;; pool, the noise-definition menu of the bar-level selector, its alpha,
+;; the regime-change detector's cut and k, the seeds and the real-data
+;; split. scripts/frozen.sh verifies the sha256 of every file the check
+;; depends on before it runs, so the candidates and parameters cannot
+;; change after the freeze commit.
+
+(require "lib/wf")
+(require "lib/members")
+(require "lib/regime")
+(require "lib/drift")
+(require "std/hyper-heuristic" all:)
+(require "std/string" all:)
+
+(define (fz-r2 x) (m-round x 2))
+
+;; Throws unless lib/regime's menu is exactly the frozen one, in order.
+(define (fz-check-defs spec)
+  (let ((want (hash-ref (hash-ref spec "selector") "noise-defs"))
+        (have (map car BAR-DEFS)))
+    (if (not (equal? (json-encode want) (json-encode have)))
+      (error (string-append "frozen noise-defs differ: " (json-encode have)))
+      (if (not (= BAR-ALPHA (hash-ref (hash-ref spec "selector") "bar-alpha")))
+        (error "frozen bar-alpha differs")
+        #t))))
+
+(define (fz-pool spec) (map json->member (hash-ref spec "pool")))
+
+(define (fz-window-pnls names rules wn)
+  (foldl (lambda (h n) (hash-set h n (hash-ref (sim-win (hash-ref rules n) wn) "pnl"))) (hash) names))
+
+;; Per-window regime selector, online over the test windows in time order.
+(define (fz-regime-online sel cuts test test-pnls)
+  (let loop ((ws (map cons test test-pnls)) (sel sel) (acc (list)))
+    (if (null? ws) (reverse acc)
+      (let* ((w (hash-ref (car (car ws)) "w"))
+             (grp (filter (lambda (x) (= (hash-ref (car x) "w") w)) ws))
+             (rest (filter (lambda (x) (not (= (hash-ref (car x) "w") w))) ws))
+             (rows (map (lambda (x) (hash-ref (cdr x) (car (regime-choose sel (regime-cell cuts (win-features (car x)))))))
+                        grp))
+             (sel2 (foldl (lambda (s x) (regime-add s (regime-cell cuts (win-features (car x))) (cdr x))) sel grp)))
+        (loop rest sel2 (append (reverse rows) acc))))))
+
+;; One tape set (a seed's six tapes, or the real-data tapes): SBS on
+;; train, the per-window and bar-level selectors, the after-the-fact
+;; oracle, each against SBS with tune:gate at the frozen alpha.
+(define (fz-select spec label tapes)
+  (let* ((sp (hash-ref spec "selector"))
+         (pool (fz-pool spec))
+         (names (map (lambda (m) (hash-ref m "name")) pool))
+         (rules (foldl (lambda (h m) (hash-set h (hash-ref m "name") (member-closure m))) (hash) pool))
+         (train (wins tapes (hash-ref sp "train-windows")))
+         (test (sort (wins tapes (hash-ref sp "test-windows")) (lambda (a b) (< (hash-ref a "w") (hash-ref b "w")))))
+         (train-pnls (par-map (lambda (wn) (fz-window-pnls names rules wn)) train))
+         (test-pnls (par-map (lambda (wn) (fz-window-pnls names rules wn)) test))
+         (sbs (car (foldl (lambda (b n) (let ((v (m-sum (map (lambda (h) (hash-ref h n)) train-pnls))))
+                                          (if (or (not b) (> v (cdr b))) (cons n v) b)))
+                          #f names)))
+         (sbs-oos (map (lambda (h) (hash-ref h sbs)) test-pnls))
+         (oracle (map (lambda (h) (apply max (map (lambda (n) (hash-ref h n)) names))) test-pnls))
+         (cuts (regime-cuts (map win-features train)))
+         (sel (regime-fit names (map (lambda (wn h) (cons (regime-cell cuts (win-features wn)) h)) train train-pnls) sbs))
+         (rg-oos (fz-regime-online sel cuts test test-pnls))
+         (fit (bar-fit-auto names rules sbs train par-map))
+         (bar-oos (hash-ref (eval-rule (bar-composite (hash-ref fit "table") rules) test) "pnls"))
+         (alpha (hash-ref sp "gate-alpha"))
+         (g-rg (tune:gate rg-oos sbs-oos (hash "alpha" alpha "sense" "max")))
+         (g-bar (tune:gate bar-oos sbs-oos (hash "alpha" alpha "sense" "max"))))
+    (hash "label" label "sbs" sbs "test-windows" (length test)
+          "sbs-oos" sbs-oos "bar-oos" bar-oos "regime-oos" rg-oos "oracle-oos" oracle
+          "sbs-sum" (fz-r2 (m-sum sbs-oos)) "bar-sum" (fz-r2 (m-sum bar-oos))
+          "regime-sum" (fz-r2 (m-sum rg-oos)) "oracle-sum" (fz-r2 (m-sum oracle))
+          "bar-t" (fz-r2 (hash-ref g-bar "t")) "bar-keep" (hash-ref g-bar "keep")
+          "regime-t" (fz-r2 (hash-ref g-rg "t")) "regime-keep" (hash-ref g-rg "keep")
+          "bar-def" (hash-ref fit "def")
+          "bar-table" (map (lambda (c) (hash-ref (hash-ref fit "table") c)) BAR-CELLS))))
+
+;; Regime-change detector with the frozen cut and k on a seed's tapes
+;; (hits within the frozen horizon after a regime change, false alarms)
+;; and on stationary tapes of the same seed (every alarm is false).
+(define (fz-detect spec seed tapes)
+  (let* ((dp (hash-ref spec "detector"))
+         (cut (hash-ref dp "cut")) (k (hash-ref dp "k")) (hz (hash-ref dp "horizon"))
+         (from (hash-ref dp "from-bar"))
+         (rs (par-map (lambda (t) (ph-score (rc-alarms cut k t from (tape-n t))
+                                            (filter (lambda (c) (>= c from)) (regime-changes t TAPE-SEG)) hz))
+                      tapes))
+         (flats (map (lambda (r) (make-tape-fixed seed 0 r)) (list 0 1 2)))
+         (flat-alarms (par-map (lambda (t) (length (rc-alarms cut k t from (tape-n t)))) flats)))
+    (hash "seed" seed
+          "changes" (apply + (map (lambda (r) (hash-ref r "changes")) rs))
+          "hits" (apply + (map (lambda (r) (hash-ref r "hits")) rs))
+          "false" (apply + (map (lambda (r) (hash-ref r "false")) rs))
+          "alarms" (apply + (map (lambda (r) (hash-ref r "alarms")) rs))
+          "bars" (apply + (map (lambda (t) (- (tape-n t) from)) tapes))
+          "stationary-bars" (apply + (map (lambda (t) (- (tape-n t) from)) flats))
+          "stationary-alarms" (apply + flat-alarms))))
+
+;; Real data: one close per line in a CSV "date,close" (header first),
+;; cut into consecutive tapes of TAPE-SEG * TAPE-SEGS bars.
+(define (fz-real-tapes path n-tapes)
+  (let* ((lines (filter (lambda (l) (> (string-length l) 0)) (string-split (read-file path) "\n")))
+         (closes (map (lambda (l) (string->number (cadr (string-split l ",")))) (cdr lines)))
+         (len (* TAPE-SEG TAPE-SEGS)))
+    (let loop ((i 0) (xs closes) (acc (list)))
+      (if (>= i n-tapes) (reverse acc)
+        (loop (+ i 1) (list-tail xs len)
+              (cons (tape-build (string-append "ecb-t" (number->string i))
+                                (map (lambda (k) "real") (range-list 0 TAPE-SEGS))
+                                (take-n xs len))
+                    acc))))))

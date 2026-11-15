@@ -1,0 +1,129 @@
+{
+ "version": "frozen-v1",
+ "note": "Frozen before any of these seeds or the real data was generated or read. Do not edit; a change needs frozen/v2.json.",
+ "pool": [
+  {
+   "name": "trend",
+   "kind": "switch",
+   "params": [
+    8,
+    2.5,
+    6.0,
+    99
+   ]
+  },
+  {
+   "name": "meanrev",
+   "kind": "switch",
+   "params": [
+    8,
+    2.5,
+    6.0,
+    0
+   ]
+  },
+  {
+   "name": "breakout",
+   "kind": "breakout",
+   "params": [
+    12
+   ]
+  },
+  {
+   "name": "revert-8",
+   "kind": "revert",
+   "params": [
+    8,
+    6.0
+   ]
+  },
+  {
+   "name": "revert-16",
+   "kind": "revert",
+   "params": [
+    16,
+    10.0
+   ]
+  },
+  {
+   "name": "donchian-20",
+   "kind": "breakout",
+   "params": [
+    20
+   ]
+  },
+  {
+   "name": "momo-20",
+   "kind": "momo",
+   "params": [
+    20.0
+   ]
+  },
+  {
+   "name": "eff-0.5",
+   "kind": "eff",
+   "params": [
+    0.5
+   ]
+  },
+  {
+   "name": "flat",
+   "kind": "flat",
+   "params": []
+  }
+ ],
+ "selector": {
+  "noise-defs": [
+   "er<0.5",
+   "er<0.3",
+   "chop>=3",
+   "er<0.5x4",
+   "er<0.5x8"
+  ],
+  "bar-alpha": 0.1,
+  "bar-passes": 2,
+  "gate-alpha": 0.05,
+  "train-windows": [
+   1,
+   2,
+   3,
+   4
+  ],
+  "test-windows": [
+   5,
+   6,
+   7
+  ],
+  "primary": "pooled tune:gate over every test window of every seed, bar-level selector vs SBS, alpha 0.05",
+  "secondary": "number of seeds where the bar-level selector passes tune:gate vs SBS at alpha 0.05"
+ },
+ "detector": {
+  "cut": 0.3,
+  "k": 8,
+  "horizon": 40,
+  "from-bar": 40,
+  "calibrated-on": "seed 7, six tapes (P4 grid cut {0.3,0.5,0.7} x k {1,2,4,8,12})"
+ },
+ "seed-rule": "n = 0, 1, ...: v = int(sha256('aura-fx-frozen-v1:' + str(n)).hexdigest(), 16) % 90000 + 1000; keep v unless used before {7, 11, 23, 31, 47, 99} or already kept; first 10",
+ "seeds": [
+  54234,
+  49977,
+  43446,
+  12219,
+  72505,
+  41297,
+  1174,
+  68802,
+  4425,
+  11975
+ ],
+ "tapes-per-seed": 6,
+ "real": {
+  "source": "ECB euro foreign exchange reference rates, https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip, column USD (USD per EUR), one value per TARGET business day",
+  "rule": "ascending by date, drop N/A, keep dates <= 2026-11-13, take the last 1920 rows, cut into 6 consecutive tapes of 320 bars (8 windows of 40); same train/test windows as the seeds. No regime labels, so only the selector is checked on it.",
+  "csv": "data/ecb-eurusd.csv",
+  "tapes": 6,
+  "last-date": "2026-11-13",
+  "rows": 1920
+ }
+}
