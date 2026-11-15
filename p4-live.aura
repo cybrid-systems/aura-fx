@@ -1,16 +1,20 @@
 ;; P4: the live loop, on a tape none of P1-P3 saw (seed 99).
 ;;
-;; One hot entry rule, rule-entry (std/hot-strategy has one active name).
+;; One hot entry rule, rule-entry (healed by name, std/hot-strategy keeps a last-good per name since aura#5288).
 ;; Per bar: read features, call rule-entry through the workspace binding,
 ;; apply the pre-trade risk limits, fill, audit the order (features,
 ;; member, rule revision, candidate id) into the session and the evo log,
 ;; feed the bar's pnl back to the selector.
 ;; The live tape is the first seed-99 tape with up, range and down segments.
-;; On drift (select:drift?): the selector's member for the current
-;; features is tried with evo:trial in a child worldline on the last 80
-;; bars; it must be feasible and beat the live rule there; evo:commit!
-;; then swaps it in with hot-strategy:swap!.
-;; Breach: drawdown since the last swap above (risk-heal-dd) heals with
+;; On drift (Page-Hinkley on the live rule's bar pnl, lib/drift, with
+;; delta and lambda calibrated on the seed-7 tapes): the regime
+;; selector's member for the current features (lib/regime, fitted on
+;; P3's train windows) is tried with evo:trial in a child worldline on
+;; the last 80 bars; it must be feasible and beat the live rule there;
+;; evo:commit! then swaps it in with hot-strategy:swap!. select:drift?
+;; of the kNN selector is still fed and counted, for comparison only.
+;; Breach: drawdown since the last swap above (risk-heal-dd), or a drift
+;; alarm while the live rule is not a gated member, heals with
 ;; hot-strategy:heal! before the next bar. One breach is injected on
 ;; purpose (an inverted copy of the live rule, swapped in without gates).
 ;; No Demo order is sent; the session is replayed by the Python adapter.
@@ -20,6 +24,8 @@
 (require "std/portfolio" all:)
 (require "std/algo-select" all:)
 (require "std/list" all:)
+(require "lib/drift")
+(require "lib/regime")
 
 (define LIVE-SEED 99)
 (define INJECT-BAR 200)
@@ -37,10 +43,55 @@
   (let ((r (member-closure mem))) (lambda (inst ctx) (hash-ref (sim-win r inst) "pnl"))))
 (define pf (foldl (lambda (pf mem) (portfolio:add! pf (hash-ref mem "name") (factory mem)))
                   (portfolio:make (hash "sense" "max")) members))
-(define mtx (fiber:join (fiber:spawn (lambda () (portfolio:matrix pf train (hash "seeds" (list 1)))))))
+(define mtx (portfolio:matrix pf train (hash "seeds" (list 1))))
 (define sel (select:offline (select:features-fn! (select:make (hash "model" "knn" "k" 1 "sense" "max"))
                                                   win-features)
                             mtx (hash)))
+;; regime selector on the same train windows
+(define member-names (map (lambda (m) (hash-ref m "name")) members))
+(define rg-cuts (regime-cuts (map win-features train)))
+(define rg-train
+  (par-map (lambda (wn) (let loop ((ms members) (h (hash)))
+                          (if (null? ms) h
+                            (loop (cdr ms) (hash-set h (hash-ref (car ms) "name")
+                                                     (hash-ref (sim-win (member-closure (car ms)) wn) "pnl"))))))
+           train))
+(define rg-sbs (hash-ref (hash-ref p3 "regime") "sbs"))
+(define rg-sel (regime-fit member-names
+                           (map (lambda (wn h) (cons (regime-cell rg-cuts (win-features wn)) h)) train rg-train)
+                           rg-sbs))
+
+;; ── Page-Hinkley calibration on the seed-7 tapes (bars 40..319) ──
+;; Pick the (delta, lambda) with the most hits minus false alarms
+;; (hit: an alarm within 40 bars after a regime change); ties go to
+;; fewer alarms. Fixed before the live tape is read.
+(define PH-HORIZON 40)
+(define PH-GRID (apply append (map (lambda (d) (map (lambda (l) (list d l)) (list 50.0 100.0 150.0 200.0 300.0)))
+                                   (list 0.0 1.0 2.0 4.0))))
+(define cal-tapes (make-tapes 7 6))
+(define cal-series
+  (par-map (lambda (ct) (cons ct (bar-pnls (params-rule (p1-live-params)) ct 40 (tape-n ct)))) cal-tapes))
+(define (cal-score dl)
+  (let* ((rs (map (lambda (cs) (ph-score (ph-alarms (car dl) (car (cdr dl)) (cdr cs) 40 0)
+                                          (regime-changes (car cs) 40) PH-HORIZON))
+                  cal-series)))
+    (hash "delta" (car dl) "lambda" (car (cdr dl))
+          "hits" (apply + (map (lambda (r) (hash-ref r "hits")) rs))
+          "false" (apply + (map (lambda (r) (hash-ref r "false")) rs))
+          "alarms" (apply + (map (lambda (r) (hash-ref r "alarms")) rs))
+          "changes" (apply + (map (lambda (r) (hash-ref r "changes")) rs)))))
+(define cal-rows (map cal-score PH-GRID))
+(define cal-best
+  (foldl (lambda (b r)
+           (let ((sb (- (hash-ref b "hits") (hash-ref b "false")))
+                 (sr (- (hash-ref r "hits") (hash-ref r "false"))))
+             (if (or (> sr sb) (and (= sr sb) (< (hash-ref r "alarms") (hash-ref b "alarms")))) r b)))
+         (car cal-rows) (cdr cal-rows)))
+(define PH-DELTA (hash-ref cal-best "delta"))
+(define PH-LAMBDA (hash-ref cal-best "lambda"))
+(define ph-state (ph-make PH-DELTA PH-LAMBDA))
+(define ph-alarm-bars (list))
+
 (define (find-member name)
   (let loop ((ms members)) (cond ((null? ms) #f) ((string=? (hash-ref (car ms) "name") name) (car ms))
                                  (else (loop (cdr ms))))))
@@ -105,7 +156,7 @@
       (begin
         (set! prev-member cur-member) (set! prev-cand cur-cand) (set! prev-code cur-code)
         (set! cur-member name) (set! cur-cand (evo:candidate-id cand)) (set! cur-code code)
-        (set! swap-bar i) (set! swap-peak eq))
+        (set! swap-bar i) (set! swap-peak eq) (set! ph-state (ph-make PH-DELTA PH-LAMBDA)))
       #f)
     kept))
 
@@ -120,12 +171,14 @@
     (set! cur-member (string-append "inverted-" cur-member)) (set! cur-cand "inject") (set! cur-code bad)
     (set! swap-bar i) (set! swap-peak eq) (set! injected #t)))
 
-(define (heal! i breach-bar dd)
-  (let ((ok (hot-strategy:heal!)))
+(define (heal! i breach-bar dd . rest)
+  (let ((ok (hot-strategy:heal! "rule-entry")))
+    (set! ph-state (ph-make PH-DELTA PH-LAMBDA))
     (audit! "HEAL" (string-append "drawdown since swap " (number->string (m-round dd 2)))
             (hash "bar" i "breach-bar" breach-bar)
             (hash "algo" "fx-live" "gen" i "candidate" cur-cand))
     (event! (hash "bar" i "kind" "HEAL" "ok" ok "breach-bar" breach-bar "latency-bars" (- i breach-bar)
+                  "trigger" (if (pair? rest) (car rest) "drawdown")
                   "dd" (m-round dd 2) "from" cur-member "to" prev-member "rule-rev" (hot-strategy:version)))
     (set! cur-member prev-member) (set! cur-cand prev-cand) (set! cur-code prev-code)
     (set! swap-bar -1000)
@@ -173,16 +226,23 @@
           (if (find-member cur-member) (select:feedback! sel (inst-at i) cur-member (- eq last-eq)) #f)
           ;; breach -> heal before the next bar
           (let* ((sp (if (> eq swap-peak) eq swap-peak))
-                 (sdd (- sp eq)))
+                 (sdd (- sp eq))
+                 (ph (ph-step ph-state (- eq last-eq)))
+                 (alarm (car ph)))
             (set! swap-peak sp)
+            (set! ph-state (cdr ph))
+            (if alarm (set! ph-alarm-bars (cons i ph-alarm-bars)) #f)
             (cond
               ((and (>= swap-bar 0) (> sdd (risk-heal-dd)))
                (heal! i i sdd))
+              ;; drift on a rule that never passed the gates (the injected
+              ;; one): roll back to the last good rule instead of swapping
+              ((and alarm (>= swap-bar 0) (not (find-member cur-member)))
+               (heal! i i sdd "drift"))
               ((and (= i INJECT-BAR) (not injected))
                (inject! i eq))
-              ((and (> (- i swap-bar) COOLDOWN) (> (- i last-try) RETRY) (>= i 80) (select:drift? sel))
-               (let* ((xs (select:choose sel (inst-at i) 1))
-                      (name (if (pair? xs) (car xs) cur-member)))
+              ((and alarm (> (- i swap-bar) COOLDOWN) (> (- i last-try) RETRY) (>= i 119))
+               (let* ((name (car (regime-choose rg-sel (regime-cell rg-cuts f)))))
                  (if (and (find-member name) (not (string=? name cur-member)))
                    (begin (set! last-try i) (try-swap! i name eq))
                    #f)))
@@ -201,6 +261,10 @@
 (write-file "out/live-session.json" (json-encode session))
 
 (define evs (reverse events))
+;; change points on the live tape: regime changes and the injected fault
+(define ph-live (ph-score (reverse ph-alarm-bars)
+                          (sort (cons INJECT-BAR (filter (lambda (c) (>= c 40)) (regime-changes t 40))) <)
+                          PH-HORIZON))
 (define (kind-count k) (length (filter (lambda (e) (string=? (hash-ref e "kind") k)) evs)))
 (define heals (filter (lambda (e) (string=? (hash-ref e "kind") "HEAL")) evs))
 (define inject-ev (filter (lambda (e) (string=? (hash-ref e "kind") "INJECT")) evs))
@@ -218,6 +282,9 @@
                      "swaps" (kind-count "SWAP") "swap-refused" (kind-count "SWAP-REFUSED")
                      "heals" (length heals) "risk-blocks" (hash-ref res "blocks")
                      "drift-bars" (hash-ref res "drifts")
+                     "ph" (hash "delta" PH-DELTA "lambda" PH-LAMBDA "calibration" cal-rows
+                                "alarms" (length ph-alarm-bars) "alarm-bars" (reverse ph-alarm-bars)
+                                "live-score" ph-live)
                      "inject-bar" INJECT-BAR
                      "inject-heal" inject-heal "heal-within-1-bar" heal-ok
                      "probe-boot" probe-boot "probe-end" probe-end
@@ -233,6 +300,12 @@
             (if (hash-ref e "latency-bars" #f) (begin (display " latency=") (display (hash-ref e "latency-bars"))) #f)
             (newline))
           (filter (lambda (e) (not (string=? (hash-ref e "kind") "RISK-BLOCK"))) evs))
+(display "P4 drift knn-select-flags=") (display (hash-ref res "drifts")) (display "/") (display (- N 40))
+(display " page-hinkley delta=") (display PH-DELTA) (display " lambda=") (display PH-LAMBDA)
+(display " alarms=") (display (length ph-alarm-bars)) (display " changes=") (display (hash-ref ph-live "changes"))
+(display " hits=") (display (hash-ref ph-live "hits")) (display " false=") (display (hash-ref ph-live "false"))
+(display " cal(hits/false/alarms/changes)=") (display (list (hash-ref cal-best "hits") (hash-ref cal-best "false")
+                                                             (hash-ref cal-best "alarms") (hash-ref cal-best "changes"))) (newline)
 (display "P4 swaps=") (display (kind-count "SWAP")) (display " refused=") (display (kind-count "SWAP-REFUSED"))
 (display " heals=") (display (length heals)) (display " risk-blocks=") (display (hash-ref res "blocks"))
 (display " heal-within-1-bar=") (display heal-ok)

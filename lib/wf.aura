@@ -64,13 +64,14 @@
                     (if (null? xs) s (step (search:step s (hash-ref (car xs) "score")) (cdr xs))))))
         (loop st2 (+ used (length rs)) (append (reverse rs) hist))))))
 
-;; Walk-forward over WF-FOLDS. Returns per-fold best params, the
-;; out-of-sample pnl of each fold's params on its test windows, and the
-;; Sharpe of every scored candidate (for the deflated metric).
-(define (walk-forward kind seed tapes budget pop mapper)
-  (let loop ((ks WF-FOLDS) (folds (list)) (oos (list)) (srs (list)) (n 0))
+;; Walk-forward over WF-FOLDS (or the folds given). Returns per-fold best
+;; params, the out-of-sample pnl of each fold's params on its test
+;; windows, and the Sharpe of every scored candidate (for the deflated
+;; metric).
+(define (walk-forward kind seed tapes budget pop mapper . rest)
+  (let loop ((ks (if (pair? rest) (car rest) WF-FOLDS)) (folds (list)))
     (if (null? ks)
-      (hash "kind" kind "folds" (reverse folds) "oos" oos "trial-srs" srs "evals" n)
+      (wf-restrict (hash "kind" kind "folds" (reverse folds)) (if (pair? rest) (car rest) WF-FOLDS))
       (let* ((k (car ks))
              (train (fold-train tapes k))
              (test (fold-test tapes k))
@@ -79,14 +80,66 @@
              (p (hash-ref best "params"))
              (te (eval-rule (params-rule p) test)))
         (loop (cdr ks)
-              (cons (hash "fold" k "params" p "train-sum" (hash-ref best "sum")
+              (cons (hash "fold" k "kind" kind "params" p "train-sum" (hash-ref best "sum")
                           "train-violation" (hash-ref best "violation")
                           "test-pnls" (hash-ref te "pnls") "test-sum" (hash-ref te "sum")
-                          "test-constraints" (hash-ref te "constraints"))
-                    folds)
-              (append oos (hash-ref te "pnls"))
-              (append srs (map (lambda (h) (hash-ref h "sharpe")) (hash-ref r "history")))
-              (+ n (hash-ref r "evals")))))))
+                          "test-constraints" (hash-ref te "constraints")
+                          "srs" (map (lambda (h) (hash-ref h "sharpe")) (hash-ref r "history"))
+                          "evals" (hash-ref r "evals"))
+                    folds))))))
+
+(define (fold-of wf k)
+  (let loop ((fs (hash-ref wf "folds")))
+    (cond ((null? fs) #f) ((= (hash-ref (car fs) "fold") k) (car fs)) (else (loop (cdr fs))))))
+
+;; The same walk-forward result seen through folds ks only.
+(define (wf-restrict wf ks)
+  (let ((fs (map (lambda (k) (fold-of wf k)) ks)))
+    (hash "kind" (hash-ref wf "kind") "folds" fs
+          "oos" (apply append (map (lambda (f) (hash-ref f "test-pnls")) fs))
+          "trial-srs" (apply append (map (lambda (f) (hash-ref f "srs")) fs))
+          "evals" (apply + (map (lambda (f) (hash-ref f "evals")) fs)))))
+
+;; ── racing the search algorithms inside the walk-forward ──
+;; For outer fold k the algorithm is chosen by tune:race on the folds
+;; k-2 and k-1 only: each algorithm's params fitted on windows before j,
+;; scored on window j of every tape (12 paired instances). Window k is
+;; never seen by the choice. The chosen algorithm's own fold-k params are
+;; then tested on window k. Every candidate any algorithm scored on any
+;; fold counts as a trial for the deflated Sharpe.
+(define RACE-INNER 2)
+
+(define (race-instances k tapes)
+  (let loop ((j (- k RACE-INNER)) (acc (list)))
+    (if (>= j k) (reverse acc)
+      (loop (+ j 1)
+            (append (reverse (map (lambda (ti) (list j ti)) (range-list 0 (length tapes)))) acc)))))
+
+(define (race-fold wfs k tapes)
+  (let* ((kinds (map (lambda (w) (hash-ref w "kind")) wfs))
+         (by-kind (lambda (kind) (let loop ((ws wfs)) (if (string=? (hash-ref (car ws) "kind") kind) (car ws) (loop (cdr ws))))))
+         (r (tune:race (map (lambda (kd) (hash "name" kd)) kinds)
+              (hash "instances" (race-instances k tapes) "seeds" (list 1)
+                    "evaluate" (lambda (cfg inst seed)
+                                 (list-ref (hash-ref (fold-of (by-kind (hash-ref cfg "name")) (car inst)) "test-pnls")
+                                           (car (cdr inst))))
+                    "alpha" 0.05 "sense" "max" "batch" (length tapes) "min-instances" 2)))
+         (win (hash-ref r "winner"))
+         (winner (if (string? win) win (car kinds)))
+         (f (fold-of (by-kind winner) k)))
+    (hash "fold" k "winner" winner "ranking" (hash-ref r "ranking")
+          "scores" (hash-ref r "scores") "evaluations" (hash-ref r "evaluations")
+          "params" (hash-ref f "params") "train-sum" (hash-ref f "train-sum")
+          "test-pnls" (hash-ref f "test-pnls") "test-sum" (hash-ref f "test-sum"))))
+
+;; wfs: walk-forward results over (k - RACE-INNER) .. k for every kind.
+(define (walk-forward-race wfs tapes)
+  (let* ((folds (map (lambda (k) (race-fold wfs k tapes)) WF-FOLDS))
+         (all-folds (apply append (map (lambda (w) (hash-ref w "folds")) wfs))))
+    (hash "kind" "race" "folds" folds
+          "oos" (apply append (map (lambda (f) (hash-ref f "test-pnls")) folds))
+          "trial-srs" (apply append (map (lambda (f) (hash-ref f "srs")) all-folds))
+          "evals" (apply + (map (lambda (f) (hash-ref f "evals")) all-folds)))))
 
 ;; The live rule's out-of-sample pnl on the same test windows.
 (define (baseline-oos tapes params)
@@ -161,11 +214,11 @@
           "behavior" (hash-ref trial "behavior" (hash)))))
 
 ;; ── proposal guard ──
-;; prop:check-proposal checks define NAMES: every define must be rule-*
-;; and none may be a risk define. It does not look inside a body, so a
-;; rule-entry body that calls eval or set! on a risk define passes it
-;; (measured on nightly 856727cc). This second scan refuses any genome
-;; that mentions set!, eval, a risk-* name, mutate or hot-strategy.
+;; prop:check-proposal checks that every define is rule-* and that no
+;; body set!s or evals a protected (risk) define (aura#5291). The second
+;; scan is defence in depth: it also refuses set!, eval, mutate,
+;; hot-strategy, getenv, write-file and friends on ANY name, which the
+;; protected list does not cover.
 (require "std/proposer" all:)
 (require "std/string" all:)
 

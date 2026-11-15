@@ -29,11 +29,25 @@
 (define tapes (make-tapes SEED 6))
 (define train (wins tapes (list 1 2 3 4)))
 (define test (wins tapes (list 5 6 7)))
-(define base-oos (hash-ref (eval-rule (params-rule BASE-PARAMS) test) "pnls"))
-(define base-train (hash-ref (eval-rule (params-rule BASE-PARAMS) train) "sum"))
+(define LIVE-PARAMS (p1-live-params))
+(define base-oos (hash-ref (eval-rule (params-rule LIVE-PARAMS) test) "pnls"))
+(define base-train (hash-ref (eval-rule (params-rule LIVE-PARAMS) train) "sum"))
+;; the live rule's train pnl per regime, and the feature ranges on train
+(define (regime-sum rg)
+  (hash-ref (eval-rule (params-rule LIVE-PARAMS) (filter (lambda (w) (string=? (hash-ref w "regime") rg)) train)) "sum"))
+(define (feat-range key)
+  (let* ((xs (apply append (map (lambda (w) (let loop ((i (hash-ref w "from")) (acc (list)))
+                                               (if (>= i (hash-ref w "to")) acc
+                                                 (loop (+ i 1) (cons (if (string=? key "chop") (tape-chop (hash-ref w "tape") i)
+                                                                         (tape-slope (hash-ref w "tape") i)) acc)))))
+                                train)))
+         (s (sort xs <)) (n (length s)))
+    (list (list-ref s (quotient n 10)) (list-ref s (quotient n 2)) (list-ref s (quotient (* 9 n) 10)))))
+(define (fmt-num x) (number->string (m-round x 1)))
+(define (fmt3 xs) (string-append (fmt-num (car xs)) " / " (fmt-num (cadr xs)) " / " (fmt-num (car (cddr xs)))))
 
-;; ── LLM transport with our own counters (llm:call-stats does not count
-;; success/fail for llm:chat on this nightly) ──
+;; ── LLM transport: latency per call here; ok / fail counts come from
+;; llm:call-stats ──
 (define calls (list))
 (define (ask sys usr max-tokens)
   (let* ((t0 (monotonic-ms))
@@ -70,9 +84,13 @@
     "(tape-hi t i n) / (tape-lo t i n) high / low of the n bars before i; "
     "(rule-switch t i prev n trend-pips fade-pips chop-split 1) the current rule: follow price vs SMA(n) "
     "past trend-pips when chop < chop-split, else fade it past fade-pips. "
-    "Use n between 4 and 24. Price differences are tiny: multiply by 10000.0 to get pips. "
+    "Parameter ranges the search uses: n 4..24 bars, trend-pips 0.5..10, fade-pips 2..20, chop-split 2..16. "
+    "Price differences are tiny: multiply by 10000.0 to get pips. "
     "Allowed forms: define, let, let*, if, cond, and, or, arithmetic, comparisons, abs, min, max. "
     "Do not use set!, eval, or any name starting with risk-. Do not define anything other than rule-entry. "
+    "tape-slope and tape-chop are already in pips / counts: do not scale them. "
+    "Aura's rebind type gate (aura#5300) refuses some valid rules: keep the previous position with (+ prev 0), "
+    "not a bare prev, and do not mix integer-literal branches with a rule-switch call in one rule. "
     "Each bar a position change pays 0.8 pip of spread. Answer with code only, no prose."))
 
 (define (fmt-hist hist)
@@ -85,9 +103,13 @@
 
 (define (round-prompt hist)
   (string-append
-    "Shipped rule: (rule-switch t i prev 8 2.5 6.0 8 1), train pnl "
+    "Live rule: (rule-switch t i prev " (num->text (list-ref LIVE-PARAMS 0)) " " (num->text (list-ref LIVE-PARAMS 1)) " "
+    (num->text (list-ref LIVE-PARAMS 2)) " " (num->text (list-ref LIVE-PARAMS 3)) " 1), train pnl "
     (number->string (m-round base-train 1))
-    " over 24 windows of 40 bars (trend up, range, trend down regimes). "
+    " over 24 windows of 40 bars; by regime: up " (fmt-num (regime-sum "up"))
+    ", range " (fmt-num (regime-sum "range")) ", down " (fmt-num (regime-sum "down")) ". "
+    "On these bars (10th / 50th / 90th percentile) tape-slope is " (fmt3 (feat-range "slope"))
+    " pips and tape-chop is " (fmt3 (feat-range "chop")) ". "
     "Earlier proposals and their train pnl:" (fmt-hist hist)
     "\nPropose " (number->string PER-ROUND)
     " NEW rules with a different structure that should earn more on train without big drawdowns. "
@@ -102,16 +124,12 @@
 
 ;; Both arms are gated in batches of PER-ROUND, in proposal order. The
 ;; deflated Sharpe is charged for every candidate the arm has measured so
-;; far (trials grow 3, 6, 9, 12). Batching is also the workaround for an
-;; Aura issue: after 3 evo:trial calls without an evo:commit! in between,
-;; getenv (and so llm:chat) is denied io-read until the next commit.
+;; far (trials grow 3, 6, 9, 12).
 (define (decide-batch s ms prior)
   (let ((srs (map (lambda (m) (hash-ref m "train-sharpe"))
                   (filter (lambda (m) (hash-ref m "ok")) (append prior ms)))))
     (map (lambda (m) (decide-candidate! s m base-oos srs)) ms)))
 
-(define (io-read-ok?) (try (begin (getenv "HOME") #t) (catch (e) #f)))
-(define denied-before-ask 0)
 
 ;; ES: 12 candidates on train (pop 4, 3 generations), no fibers.
 (define t-es0 (monotonic-ms))
@@ -137,7 +155,6 @@
                                           "train" (hash-ref m "train-sum" 0.0)
                                           "refusal" (hash-ref m "refusal")))
                         acc))
-             (_ (if (io-read-ok?) #f (set! denied-before-ask (+ denied-before-ask 1))))
              (reply (ask SYS (round-prompt hist) 1500))
              (gs (if reply (extract-defines reply) (list)))
              (gs (take gs (min (length gs) (- BUDGET (length acc)) PER-ROUND)))
@@ -146,7 +163,7 @@
         (loop (+ r 1) (append acc new))))))
 (define t-llm1 (monotonic-ms))
 
-;; best-on-train of each arm, against the shipped rule out of sample
+;; best-on-train of each arm, against the live rule out of sample
 (define (best-row rows)
   (let loop ((rs rows) (b #f))
     (cond ((null? rs) b)
@@ -212,7 +229,6 @@
                      "call-errors" (map (lambda (c) (hash-ref c "error")) (filter (lambda (c) (not (hash-ref c "ok"))) calls))
                      "llm-call-stats" (hash->list stats)
                      "rate-limit-remaining" (llm:rate-limit-remaining)
-                     "io-read-denied-before-ask" denied-before-ask
                      "review" (if review review ""))))
 
 (define (show a)
@@ -227,7 +243,7 @@
   (display " t=") (display (hash-ref a "best-t"))
   (display " deflated=") (display (hash-ref a "best-deflated"))
   (display " ms=") (display (hash-ref a "ms")) (newline))
-(display "P5 shipped oos=") (display (r2 (m-sum base-oos))) (newline)
+(display "P5 live oos=") (display (r2 (m-sum base-oos))) (newline)
 (show es-sum)
 (show llm-sum)
 (display "P5 llm calls=") (display (length calls)) (display " ok=")

@@ -1,0 +1,68 @@
+;; Page-Hinkley drift on the live rule's per-bar pnl.
+;;
+;; select:drift? compares the last 20 feature buckets with the training
+;; mix. On one tape the last 20 bars are almost always one regime, so it
+;; reports drift on nearly every bar (276 of 280 in P4). This detector
+;; looks at what matters for a swap: whether the live rule started to
+;; lose. With x the bar pnl and xbar its running mean,
+;;   m_T = sum_{t<=T} (xbar_t - x_t - delta),  M_T = min_{t<=T} m_t,
+;; and it alarms when m_T - M_T > lambda, then restarts.
+;; delta and lambda are calibrated on the seed-7 tapes (P1-P3 data), not
+;; on the live tape.
+
+(require "lib/engine")
+
+(define (ph-make delta lam) (hash "delta" delta "lambda" lam "n" 0 "mean" 0.0 "m" 0.0 "mmin" 0.0))
+
+;; Returns (alarm? . new-state).
+(define (ph-step st x)
+  (let* ((n (+ 1 (hash-ref st "n")))
+         (mean (+ (hash-ref st "mean") (/ (- x (hash-ref st "mean")) n)))
+         (m (+ (hash-ref st "m") (- mean x (hash-ref st "delta"))))
+         (mmin (min (hash-ref st "mmin") m))
+         (alarm (> (- m mmin) (hash-ref st "lambda"))))
+    (if alarm
+      (cons #t (ph-make (hash-ref st "delta") (hash-ref st "lambda")))
+      (cons #f (hash "delta" (hash-ref st "delta") "lambda" (hash-ref st "lambda")
+                     "n" n "mean" mean "m" m "mmin" mmin)))))
+
+;; Per-bar equity change of a rule on bars [from, to), same fills as sim.
+(define (bar-pnls rule t from to)
+  (let loop ((i from) (pos 0) (avg 0.0) (real 0.0) (prev 0) (last 0.0) (acc (list)))
+    (if (>= i to) (reverse acc)
+      (let* ((want (rule t i prev))
+             (w (if (integer? want) want 0))
+             (delta (- (* w ELOT) pos))
+             (mid (tape-px t i))
+             (f (if (= delta 0) (list pos avg real)
+                  (efill pos avg real delta (if (> delta 0) (+ mid EHALF) (- mid EHALF)))))
+             (eq (emark (list-ref f 2) (car f) (list-ref f 1) mid)))
+        (loop (+ i 1) (car f) (list-ref f 1) (list-ref f 2) w eq (cons (- eq last) acc))))))
+
+;; Alarm bars of a detector over a pnl series that starts at bar `from`.
+(define (ph-alarms delta lam xs from cooldown)
+  (let loop ((xs xs) (i from) (st (ph-make delta lam)) (last -100000) (acc (list)))
+    (if (null? xs) (reverse acc)
+      (let ((r (ph-step st (car xs))))
+        (if (and (car r) (> (- i last) cooldown))
+          (loop (cdr xs) (+ i 1) (cdr r) i (cons i acc))
+          (loop (cdr xs) (+ i 1) (if (car r) (cdr r) (cdr r)) last acc))))))
+
+;; Regime change bars of a tape (segment starts whose regime differs).
+(define (regime-changes t seg)
+  (let loop ((rs (hash-ref t "regimes")) (k 0) (prev #f) (acc (list)))
+    (if (null? rs) (reverse acc)
+      (loop (cdr rs) (+ k 1) (car rs)
+            (if (and prev (not (string=? prev (car rs)))) (cons (* k seg) acc) acc)))))
+
+;; hits: changes with an alarm in [c, c + horizon); false: alarms that
+;; are not within horizon after any change; delay: mean bars to the hit.
+(define (ph-score alarms changes horizon)
+  (let* ((hit-of (lambda (c) (let loop ((as alarms)) (cond ((null? as) #f)
+                                                            ((and (>= (car as) c) (< (car as) (+ c horizon))) (car as))
+                                                            (else (loop (cdr as)))))))
+         (hits (filter (lambda (x) x) (map (lambda (c) (let ((a (hit-of c))) (if a (- a c) #f))) changes)))
+         (false (filter (lambda (a) (not (pair? (filter (lambda (c) (and (>= a c) (< a (+ c horizon)))) changes))))
+                        alarms)))
+    (hash "changes" (length changes) "hits" (length hits) "alarms" (length alarms)
+          "false" (length false) "delay" (if (null? hits) 0.0 (/ (* 1.0 (apply + hits)) (length hits))))))

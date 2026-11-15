@@ -2,8 +2,11 @@
 ;;
 ;; 6 seeded tapes x 8 windows. Walk-forward folds 5, 6, 7: 18 test
 ;; windows, each tested by parameters fitted only on earlier windows.
-;; es is the search that may commit; pso and abc run on the same folds,
-;; seeds and budget for comparison. Same seed, same output: out/p1.json
+;; es, pso and abc each run on the same folds, seeds and budget (and on
+;; folds 3, 4 too, which only the race reads). The arm that may commit is
+;; fixed in advance: "race", which picks the algorithm for fold k with
+;; tune:race on folds k-2, k-1 and is charged for every algorithm's
+;; trials. Same seed, same output: out/p1.json
 ;; holds no timings (they go to out/p1-timing.json).
 
 (require "lib/wf")
@@ -18,24 +21,34 @@
 (define tapes (make-tapes SEED 6))
 (define base-oos (baseline-oos tapes BASE-PARAMS))
 
+(define ALL-FOLDS (range-list (- (car WF-FOLDS) RACE-INNER) (+ 1 (car (reverse WF-FOLDS)))))
+
 (define (run-kind kind)
   (let* ((t0 (monotonic-ms))
-         (wf (walk-forward kind SEED tapes BUDGET POP par-map))
+         (full (walk-forward kind SEED tapes BUDGET POP par-map ALL-FOLDS))
          (t1 (monotonic-ms))
+         (wf (wf-restrict full WF-FOLDS))
          (gate (oos-gate (hash-ref wf "oos") base-oos (hash-ref wf "trial-srs"))))
-    (hash "kind" kind "wf" wf "gate" gate "ms" (- t1 t0))))
+    (hash "kind" kind "wf" wf "full" full "gate" gate "ms" (- t1 t0))))
 
-(define results (map run-kind (list "es" "pso" "abc")))
-(define es (car results))
+(define kind-results (map run-kind (list "es" "pso" "abc")))
+(define race-wf (walk-forward-race (map (lambda (r) (hash-ref r "full")) kind-results) tapes))
+(define race
+  (hash "kind" "race" "wf" race-wf
+        "gate" (oos-gate (hash-ref race-wf "oos") base-oos (hash-ref race-wf "trial-srs"))
+        "ms" (apply + (map (lambda (r) (hash-ref r "ms")) kind-results))))
+(define results (append kind-results (list race)))
+(define es race)   ; the committing arm
 
-;; Commit the ES result: the last fold's parameters (fitted on windows
-;; 1..6) go live only if the gate kept the walk-forward procedure.
+;; Commit the race result: the last fold's parameters (from the algorithm
+;; the race picked on folds 5, 6, fitted on windows 1..6) go live only if
+;; the gate kept the walk-forward procedure.
 (define last-fold (car (reverse (hash-ref (hash-ref es "wf") "folds"))))
 (define cand-params (hash-ref last-fold "params"))
 (define cand-code (params-code cand-params))
 (define s (commit-search "fx-p1-es" SEED))
 (define cand (evo:candidate cand-code (hash "target" "rule-entry" "gen" 7
-                                            "thought" "walk-forward es, fold 7 params")))
+                                            "thought" (string-append "walk-forward race, fold 7 " (hash-ref last-fold "winner") " params"))))
 (define trial (trial-measure cand (append (fold-train tapes 7) (fold-test tapes 7))))
 (define ev (commit-eval trial (hash-ref es "gate") (m-sum (hash-ref (hash-ref es "wf") "oos"))))
 (define rev-before (hot-strategy:version))
@@ -56,6 +69,7 @@
           "trials" (hash-ref g "trials")
           "decision" (if (hash-ref g "keep") "KEEP" "ROLLBACK")
           "folds" (map (lambda (f) (hash "fold" (hash-ref f "fold") "params" (hash-ref f "params")
+                                         "algo" (hash-ref f "winner" (hash-ref f "kind" ""))
                                          "train-sum" (r2 (hash-ref f "train-sum"))
                                          "test-sum" (r2 (hash-ref f "test-sum"))))
                        (hash-ref wf "folds")))))
@@ -67,8 +81,9 @@
         "baseline" (hash "params" BASE-PARAMS "oos-sum" (r2 (m-sum base-oos))
                          "oos-sharpe" (r2 (m-sharpe base-oos)))
         "searches" (map row results)
-        "es-oos" (map r2 (hash-ref (hash-ref es "wf") "oos"))
-        "es-trial-srs" (map (lambda (x) (m-round x 4)) (hash-ref (hash-ref es "wf") "trial-srs"))
+        "commit-arm" "race"
+        "commit-oos" (map r2 (hash-ref (hash-ref es "wf") "oos"))
+        "commit-trial-srs" (map (lambda (x) (m-round x 4)) (hash-ref (hash-ref es "wf") "trial-srs"))
         "commit" (hash "candidate" (evo:candidate-id cand) "code" cand-code
                        "params" cand-params
                        "trial-status" (hash-ref trial "status")
@@ -81,9 +96,7 @@
 
 (write-file "out/p1.json" (json-encode report))
 (write-file "out/p1-timing.json"
-  (json-encode (hash "es-ms" (hash-ref es "ms")
-                     "pso-ms" (hash-ref (list-ref results 1) "ms")
-                     "abc-ms" (hash-ref (list-ref results 2) "ms"))))
+  (json-encode (map (lambda (r) (cons (hash-ref r "kind") (hash-ref r "ms"))) kind-results)))
 
 (display "P1 tapes=") (display (length tapes)) (display " test-windows=") (display (length base-oos))
 (display " baseline-oos=") (display (r2 (m-sum base-oos))) (newline)
@@ -96,6 +109,8 @@
     (display " dsr=") (display (hash-ref x "dsr"))
     (display " trials=") (display (hash-ref x "trials"))
     (display " ms=") (display (hash-ref r "ms"))
+    (if (string=? (hash-ref x "kind") "race")
+      (begin (display " picks=") (display (map (lambda (f) (hash-ref f "algo")) (hash-ref x "folds")))) #f)
     (display " -> ") (display (hash-ref x "decision")) (newline)))
   results)
 (display "P1 commit ") (display (evo:candidate-id cand)) (display " ") (display cand-code)

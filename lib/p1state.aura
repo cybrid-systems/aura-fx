@@ -17,4 +17,4 @@
       BASE-PARAMS)))
 
 (define (p1-trial-srs)
-  (let ((r (p1-report))) (if r (hash-ref r "es-trial-srs") (list))))
+  (let ((r (p1-report))) (if r (hash-ref r "commit-trial-srs") (list))))
