@@ -47,6 +47,31 @@
           ((< p (tape-lo t i n)) (- lots))
           (else prev))))
 
+;; ── other rule families (portfolio members for the selectors) ──
+;; revert: fade past thm pips from SMA(n), then hold until price is back
+;; at the SMA (rule-switch's fade exits as soon as |d| < thm).
+(define (rule-revert t i prev n thm lots)
+  (let ((d (* 10000.0 (- (tape-px t i) (tape-sma t i n)))))
+    (cond ((> d thm) (- lots))
+          ((< d (- thm)) lots)
+          ((and (> prev 0) (>= d 0.0)) 0)
+          ((and (< prev 0) (<= d 0.0)) 0)
+          (else prev))))
+
+;; momentum: follow the 16-bar slope past s pips, flat otherwise.
+(define (rule-momo t i prev s lots)
+  (let ((sl (tape-slope t i)))
+    (cond ((> sl s) lots) ((< sl (- s)) (- lots)) (else 0))))
+
+;; efficiency: follow the 16-bar slope only while the efficiency ratio
+;; (net move / path) is at least e; flat in noise.
+(define (rule-eff t i prev e lots)
+  (let ((sl (tape-slope t i)))
+    (cond ((< (tape-er t i) e) 0) ((> sl 0.0) lots) ((< sl 0.0) (- lots)) (else 0))))
+
+;; flat: no position.
+(define (rule-flat t i prev) 0)
+
 ;; Genome: four numbers in [0, 1] -> (n tht thm cs). Rounded so the
 ;; code text and the closure are the same rule.
 (define (clip01 x) (if (< x 0.0) 0.0 (if (> x 1.0) 1.0 x)))

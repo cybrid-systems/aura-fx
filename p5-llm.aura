@@ -89,8 +89,6 @@
     "Allowed forms: define, let, let*, if, cond, and, or, arithmetic, comparisons, abs, min, max. "
     "Do not use set!, eval, or any name starting with risk-. Do not define anything other than rule-entry. "
     "tape-slope and tape-chop are already in pips / counts: do not scale them. "
-    "Aura's rebind type gate (aura#5300) refuses some valid rules: keep the previous position with (+ prev 0), "
-    "not a bare prev, and do not mix integer-literal branches with a rule-switch call in one rule. "
     "Each bar a position change pays 0.8 pip of spread. Answer with code only, no prose."))
 
 (define (fmt-hist hist)
@@ -178,6 +176,13 @@
   (let ((b (best-row rows)))
     (hash "arm" name "candidates" (length rows) "kept" (count-kept rows)
           "refused" (count-refused rows)
+          ;; trial-failed: the child worldline could not apply / run it (before
+          ;; aura#5300 this was mostly the rebind type gate); backtested: the
+          ;; trial ran and produced train and out-of-sample pnl
+          "trial-failed" (length (filter (lambda (r) (and (not (hash-ref r "refusal"))
+                                                          (string-prefix? (hash-ref r "reason" "") "trial: "))) rows))
+          "backtested" (length (filter (lambda (r) (and (not (hash-ref r "refusal"))
+                                                        (not (string-prefix? (hash-ref r "reason" "") "trial: ")))) rows))
           "infeasible" (length (filter (lambda (r) (and (not (hash-ref r "refusal")) (not (hash-ref r "feasible" #f)))) rows))
           "keep-rate" (if (null? rows) 0.0 (r2 (/ (* 1.0 (count-kept rows)) (length rows))))
           "best-train" (if b (r2 (hash-ref b "train-sum")) #f)
@@ -235,6 +240,8 @@
   (display "P5 ") (display (hash-ref a "arm"))
   (display " candidates=") (display (hash-ref a "candidates"))
   (display " refused=") (display (hash-ref a "refused"))
+  (display " trial-failed=") (display (hash-ref a "trial-failed"))
+  (display " backtested=") (display (hash-ref a "backtested"))
   (display " infeasible=") (display (hash-ref a "infeasible"))
   (display " kept=") (display (hash-ref a "kept"))
   (display " keep-rate=") (display (hash-ref a "keep-rate"))

@@ -61,3 +61,90 @@
             (if (and (not (string=? n sbs)) (hash-ref g "keep") (> (hash-ref g "mean-diff") gain))
               (loop (cdr ns) n (hash-ref g "mean-diff"))
               (loop (cdr ns) best gain))))))))
+
+;; ── bar-level regime switch (a composite rule) ──
+;; The per-window selector above has to commit at the window's first bar
+;; with features of the previous segment. This one decides every bar from
+;; that bar's own features, so it can follow a regime change inside a
+;; window. Three cells: noise, else trend-up / trend-down by the sign of
+;; the 16-bar slope. What counts as noise is one of a fixed menu of
+;; definitions (efficiency ratio below a cut, optionally for k bars in a
+;; row, or chop at least 3); bar-fit-auto picks the definition with the
+;; best train pnl, so the choice is made on train only. Each cell runs one
+;; member; the member gets the composite's prev, so a switch can carry
+;; the position over.
+(define BAR-CELLS (list "trend-up" "trend-down" "noise"))
+(define BAR-ALPHA 0.10)
+
+(define (er-below-run t i cut k)
+  (let loop ((j 0))
+    (cond ((>= j k) #t) ((< (- i j) 16) #f) ((>= (tape-er t (- i j)) cut) #f) (else (loop (+ j 1))))))
+
+(define BAR-DEFS
+  (list (cons "er<0.5" (lambda (t i) (< (tape-er t i) 0.5)))
+        (cons "er<0.3" (lambda (t i) (< (tape-er t i) 0.3)))
+        (cons "chop>=3" (lambda (t i) (>= (tape-chop t i) 3.0)))
+        (cons "er<0.5x4" (lambda (t i) (er-below-run t i 0.5 4)))
+        (cons "er<0.5x8" (lambda (t i) (er-below-run t i 0.5 8)))))
+
+(define (bar-def name) (cdr (assoc name BAR-DEFS)))
+
+(define (bar-cell noise? t i)
+  (if (noise? t i) "noise" (if (>= (tape-slope t i) 0.0) "trend-up" "trend-down")))
+
+;; table: hash cell -> member name (plus "def" -> definition name);
+;; rules: hash name -> closure
+(define (bar-composite table rules)
+  (let ((ru (hash-ref rules (hash-ref table "trend-up")))
+        (rd (hash-ref rules (hash-ref table "trend-down")))
+        (rn (hash-ref rules (hash-ref table "noise")))
+        (noise? (bar-def (hash-ref table "def"))))
+    (lambda (t i prev)
+      (cond ((noise? t i) (rn t i prev))
+            ((>= (tape-slope t i) 0.0) (ru t i prev))
+            (else (rd t i prev))))))
+
+(define (bar-table-all def name) (foldl (lambda (h c) (hash-set h c name)) (hash "def" def) BAR-CELLS))
+
+;; Coordinate ascent on the train windows for one noise definition,
+;; starting from SBS in every cell. A cell switches member only if the
+;; composite's train pnl goes up and tune:gate (paired over the train
+;; windows, alpha BAR-ALPHA) agrees; two passes. mapper evaluates the
+;; candidates (par-map or map).
+(define (bar-fit def names rules sbs train mapper)
+  (let pass ((p 0) (table (bar-table-all def sbs)) (steps (list)) (evals 0))
+    (if (>= p 2)
+      (hash "def" def "table" table "steps" (reverse steps) "evals" evals
+            "train" (hash-ref (eval-rule (bar-composite table rules) train) "sum"))
+      (let cell-loop ((cs BAR-CELLS) (table table) (steps steps) (evals evals))
+        (if (null? cs)
+          (pass (+ p 1) table steps evals)
+          (let* ((c (car cs))
+                 (cur (hash-ref (eval-rule (bar-composite table rules) train) "pnls"))
+                 (cands (filter (lambda (n) (not (string=? n (hash-ref table c)))) names))
+                 (scored (mapper (lambda (n)
+                                   (cons n (hash-ref (eval-rule (bar-composite (hash-set table c n) rules) train) "pnls")))
+                                 cands))
+                 (best (foldl (lambda (b s)
+                                (let ((g (tune:gate (cdr s) cur (hash "alpha" BAR-ALPHA "sense" "max"))))
+                                  (if (and (hash-ref g "keep") (> (m-sum (cdr s)) (m-sum cur))
+                                           (or (not b) (> (m-sum (cdr s)) (m-sum (cdr b)))))
+                                    s b)))
+                              #f scored)))
+            (if best
+              (cell-loop (cdr cs) (hash-set table c (car best))
+                         (cons (hash "pass" p "cell" c "member" (car best)
+                                     "train" (m-round (m-sum (cdr best)) 2) "was" (m-round (m-sum cur) 2)) steps)
+                         (+ evals 1 (length cands)))
+              (cell-loop (cdr cs) table steps (+ evals 1 (length cands))))))))))
+
+;; Fit every definition, keep the one with the best train pnl (ties: the
+;; earlier one in BAR-DEFS).
+(define (bar-fit-auto names rules sbs train mapper)
+  (let* ((fits (map (lambda (d) (bar-fit (car d) names rules sbs train mapper)) BAR-DEFS))
+         (best (foldl (lambda (b f) (if (> (hash-ref f "train") (+ (hash-ref b "train") 1e-9)) f b)) (car fits) (cdr fits))))
+    (hash-set best "all" (map (lambda (f) (hash "def" (hash-ref f "def") "train" (m-round (hash-ref f "train") 2)
+                                                 "noise" (hash-ref (hash-ref f "table") "noise")
+                                                 "trend-up" (hash-ref (hash-ref f "table") "trend-up")
+                                                 "trend-down" (hash-ref (hash-ref f "table") "trend-down")))
+                              fits))))

@@ -13,6 +13,10 @@
 ;; the last 80 bars; it must be feasible and beat the live rule there;
 ;; evo:commit! then swaps it in with hot-strategy:swap!. select:drift?
 ;; of the kNN selector is still fed and counted, for comparison only.
+;; Market regime change (lib/drift rc-*: a bar label from the 16-bar
+;; efficiency ratio and slope sign, confirmed after k bars; cut and k
+;; calibrated on the seed-7 tapes): P3's bar-level table gives the member
+;; for the new cell, and it goes through the same trial and gates.
 ;; Breach: drawdown since the last swap above (risk-heal-dd), or a drift
 ;; alarm while the live rule is not a gated member, heals with
 ;; hot-strategy:heal! before the next bar. One breach is injected on
@@ -87,6 +91,39 @@
                  (sr (- (hash-ref r "hits") (hash-ref r "false"))))
              (if (or (> sr sb) (and (= sr sb) (< (hash-ref r "alarms") (hash-ref b "alarms")))) r b)))
          (car cal-rows) (cdr cal-rows)))
+;; ── market-feature regime-change detector (lib/drift rc-*) ──
+;; (cut, k) on the same seed-7 tapes and the same score; ties go to fewer
+;; alarms, then the shorter mean delay.
+(define RC-GRID (apply append (map (lambda (c) (map (lambda (k) (list c k)) (list 1 2 4 8 12))) (list 0.3 0.5 0.7))))
+(define (rc-cal-score ck)
+  (let ((rs (map (lambda (ct) (ph-score (rc-alarms (car ck) (car (cdr ck)) ct 40 (tape-n ct))
+                                        (regime-changes ct 40) PH-HORIZON))
+                 cal-tapes)))
+    (hash "cut" (car ck) "k" (car (cdr ck))
+          "hits" (apply + (map (lambda (r) (hash-ref r "hits")) rs))
+          "false" (apply + (map (lambda (r) (hash-ref r "false")) rs))
+          "alarms" (apply + (map (lambda (r) (hash-ref r "alarms")) rs))
+          "changes" (apply + (map (lambda (r) (hash-ref r "changes")) rs))
+          "delay" (m-mean (map (lambda (r) (hash-ref r "delay")) rs)))))
+(define rc-rows (par-map rc-cal-score RC-GRID))
+(define rc-best
+  (foldl (lambda (b r)
+           (let ((sb (- (hash-ref b "hits") (hash-ref b "false")))
+                 (sr (- (hash-ref r "hits") (hash-ref r "false"))))
+             (if (or (> sr sb)
+                     (and (= sr sb) (< (hash-ref r "alarms") (hash-ref b "alarms")))
+                     (and (= sr sb) (= (hash-ref r "alarms") (hash-ref b "alarms"))
+                          (< (hash-ref r "delay") (hash-ref b "delay"))))
+               r b)))
+         (car rc-rows) (cdr rc-rows)))
+(define RC-CUT (hash-ref rc-best "cut"))
+(define RC-K (hash-ref rc-best "k"))
+(define rc-state (rc-make RC-CUT RC-K))
+(define rc-alarm-bars (list))
+;; P3's bar-level table: which member runs in which market cell
+(define bar-table (hash-ref (hash-ref (hash-ref p3 "regime") "bar") "table"))
+(define bar-noise? (bar-def (hash-ref bar-table "def")))
+
 (define PH-DELTA (hash-ref cal-best "delta"))
 (define PH-LAMBDA (hash-ref cal-best "lambda"))
 (define ph-state (ph-make PH-DELTA PH-LAMBDA))
@@ -130,7 +167,7 @@
   (list (hash "tape" t "from" (- i 79) "to" (- i 39)) (hash "tape" t "from" (- i 39) "to" (+ i 1))))
 
 ;; drift -> trial -> gates -> swap
-(define (try-swap! i name eq)
+(define (try-swap! i name eq . why)
   (let* ((mem (find-member name))
          (code (member-code mem))
          (cand (evo:candidate code (hash "target" "rule-entry" "gen" i
@@ -149,6 +186,7 @@
                                        "scope" 0.0)))
          (kept (evo:commit! live-search cand ev)))
     (event! (hash "bar" i "kind" (if kept "SWAP" "SWAP-REFUSED") "member" name
+                  "trigger" (if (pair? why) (car why) "page-hinkley")
                   "candidate" (evo:candidate-id cand) "trial" (hash-ref tr "status")
                   "recent-new" (m-round new-sum 2) "recent-live" (m-round cur-sum 2)
                   "feasible" (evo:feasible? ev) "rule-rev" (hot-strategy:version)))
@@ -232,6 +270,9 @@
             (set! swap-peak sp)
             (set! ph-state (cdr ph))
             (if alarm (set! ph-alarm-bars (cons i ph-alarm-bars)) #f)
+            (let ((rc (rc-step rc-state t i)))
+              (set! rc-state (cdr rc))
+              (if (car rc) (set! rc-alarm-bars (cons i rc-alarm-bars)) #f))
             (cond
               ((and (>= swap-bar 0) (> sdd (risk-heal-dd)))
                (heal! i i sdd))
@@ -241,6 +282,13 @@
                (heal! i i sdd "drift"))
               ((and (= i INJECT-BAR) (not injected))
                (inject! i eq))
+              ;; the market changed regime: try P3's member for the new cell
+              ((and (pair? rc-alarm-bars) (= (car rc-alarm-bars) i) (> (- i swap-bar) COOLDOWN)
+                    (> (- i last-try) RETRY) (>= i 119))
+               (let ((name (hash-ref bar-table (bar-cell bar-noise? t i))))
+                 (if (and (find-member name) (not (string=? name cur-member)))
+                   (begin (set! last-try i) (try-swap! i name eq "regime"))
+                   #f)))
               ((and alarm (> (- i swap-bar) COOLDOWN) (> (- i last-try) RETRY) (>= i 119))
                (let* ((name (car (regime-choose rg-sel (regime-cell rg-cuts f)))))
                  (if (and (find-member name) (not (string=? name cur-member)))
@@ -265,6 +313,22 @@
 (define ph-live (ph-score (reverse ph-alarm-bars)
                           (sort (cons INJECT-BAR (filter (lambda (c) (>= c 40)) (regime-changes t 40))) <)
                           PH-HORIZON))
+;; the feature detector on the live tape (regime changes only; the
+;; injected fault does not move the market) and on stationary tapes
+(define live-changes (filter (lambda (c) (>= c 40)) (regime-changes t 40)))
+(define rc-live (ph-score (reverse rc-alarm-bars) live-changes PH-HORIZON))
+(define ph-live-regime (ph-score (reverse ph-alarm-bars) live-changes PH-HORIZON))
+(define flat-tapes (apply append (map (lambda (k) (map (lambda (j) (make-tape-fixed LIVE-SEED j k)) (list 0 1 2))) (list 0 1 2))))
+(define flat-rows
+  (par-map (lambda (ft)
+             (hash "tape" (hash-ref ft "id") "bars" (- (tape-n ft) 40)
+                   "rc-alarms" (length (rc-alarms RC-CUT RC-K ft 40 (tape-n ft)))
+                   "ph-alarms" (length (ph-alarms PH-DELTA PH-LAMBDA
+                                                  (bar-pnls (params-rule (p1-live-params)) ft 40 (tape-n ft)) 40 0))))
+           flat-tapes))
+(define flat-bars (apply + (map (lambda (r) (hash-ref r "bars")) flat-rows)))
+(define flat-rc (apply + (map (lambda (r) (hash-ref r "rc-alarms")) flat-rows)))
+(define flat-ph (apply + (map (lambda (r) (hash-ref r "ph-alarms")) flat-rows)))
 (define (kind-count k) (length (filter (lambda (e) (string=? (hash-ref e "kind") k)) evs)))
 (define heals (filter (lambda (e) (string=? (hash-ref e "kind") "HEAL")) evs))
 (define inject-ev (filter (lambda (e) (string=? (hash-ref e "kind") "INJECT")) evs))
@@ -284,7 +348,10 @@
                      "drift-bars" (hash-ref res "drifts")
                      "ph" (hash "delta" PH-DELTA "lambda" PH-LAMBDA "calibration" cal-rows
                                 "alarms" (length ph-alarm-bars) "alarm-bars" (reverse ph-alarm-bars)
-                                "live-score" ph-live)
+                                "live-score" ph-live "live-regime-score" ph-live-regime)
+                     "rc" (hash "cut" RC-CUT "k" RC-K "calibration" rc-rows "alarm-bars" (reverse rc-alarm-bars)
+                                "live-score" rc-live "bar-table" bar-table)
+                     "stationary" (hash "bars" flat-bars "rc-alarms" flat-rc "ph-alarms" flat-ph "rows" flat-rows)
                      "inject-bar" INJECT-BAR
                      "inject-heal" inject-heal "heal-within-1-bar" heal-ok
                      "probe-boot" probe-boot "probe-end" probe-end
@@ -306,6 +373,13 @@
 (display " hits=") (display (hash-ref ph-live "hits")) (display " false=") (display (hash-ref ph-live "false"))
 (display " cal(hits/false/alarms/changes)=") (display (list (hash-ref cal-best "hits") (hash-ref cal-best "false")
                                                              (hash-ref cal-best "alarms") (hash-ref cal-best "changes"))) (newline)
+(display "P4 regime-detector cut=") (display RC-CUT) (display " k=") (display RC-K)
+(display " live changes=") (display (hash-ref rc-live "changes")) (display " hits=") (display (hash-ref rc-live "hits"))
+(display " false=") (display (hash-ref rc-live "false")) (display " delay=") (display (m-round (hash-ref rc-live "delay") 1))
+(display " | page-hinkley on the same changes hits=") (display (hash-ref ph-live-regime "hits"))
+(display " cal(hits/false/changes)=") (display (list (hash-ref rc-best "hits") (hash-ref rc-best "false") (hash-ref rc-best "changes"))) (newline)
+(display "P4 stationary tapes=") (display (length flat-rows)) (display " bars=") (display flat-bars)
+(display " regime-detector-alarms=") (display flat-rc) (display " page-hinkley-alarms=") (display flat-ph) (newline)
 (display "P4 swaps=") (display (kind-count "SWAP")) (display " refused=") (display (kind-count "SWAP-REFUSED"))
 (display " heals=") (display (length heals)) (display " risk-blocks=") (display (hash-ref res "blocks"))
 (display " heal-within-1-bar=") (display heal-ok)

@@ -66,3 +66,32 @@
                         alarms)))
     (hash "changes" (length changes) "hits" (length hits) "alarms" (length alarms)
           "false" (length false) "delay" (if (null? hits) 0.0 (/ (* 1.0 (apply + hits)) (length hits))))))
+
+;; ── regime-change detector on market features ──
+;; Page-Hinkley above watches the live rule's pnl, so it only fires when
+;; the rule loses. This one watches the market: every bar gets a label
+;; from its own 16-bar features (efficiency ratio below cut: "noise",
+;; else "up" / "down" by the slope sign). A label must hold k bars in a
+;; row to become the confirmed regime; a change of the confirmed regime
+;; is an alarm. (cut, k) are calibrated on the seed-7 tapes, like PH.
+(define (feat-label t i cut)
+  (if (< (tape-er t i) cut) "noise" (if (>= (tape-slope t i) 0.0) "up" "down")))
+
+(define (rc-make cut k) (hash "cut" cut "k" k "conf" #f "cand" #f "run" 0))
+
+;; Returns (alarm? . new-state) for bar i of tape t.
+(define (rc-step st t i)
+  (let* ((lab (feat-label t i (hash-ref st "cut")))
+         (run (if (equal? lab (hash-ref st "cand")) (+ 1 (hash-ref st "run")) 1))
+         (conf (hash-ref st "conf"))
+         (confirm (and (>= run (hash-ref st "k")) (not (equal? lab conf))))
+         (alarm (and confirm (string? conf))))
+    (cons alarm (hash "cut" (hash-ref st "cut") "k" (hash-ref st "k")
+                      "conf" (if confirm lab conf) "cand" lab "run" run))))
+
+;; Alarm bars over bars [from, to) of a tape.
+(define (rc-alarms cut k t from to)
+  (let loop ((i from) (st (rc-make cut k)) (acc (list)))
+    (if (>= i to) (reverse acc)
+      (let ((r (rc-step st t i)))
+        (loop (+ i 1) (cdr r) (if (car r) (cons i acc) acc))))))
