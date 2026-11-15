@@ -1,6 +1,6 @@
 # aura-fx
 
-Aura 决定下不下单，ForexConnect 负责把单子送到 FXCM Demo。本仓库平时用 Aura nightly。这一版用的是自编 main `a407ecc12`，因为需要的修复还没出 nightly，见「安装」。
+Aura 决定下不下单，ForexConnect 负责把单子送到 FXCM Demo。本仓库平时用 Aura nightly。这一版用的是自编 main `be7bc1196`，因为需要的修复还没出 nightly，见「安装」。
 
 决策在 Aura 里：三套规则放进 `std/portfolio`，`std/algo-select` 的 kNN 按最近 16 根的斜率和来回次数选一套。换规则走 `std/hot-strategy`，进程不重启。经纪商接口是 Python。两边用同一份成交规则对账，对不上就说明管道没通。
 
@@ -15,9 +15,18 @@ curl -fsSL https://raw.githubusercontent.com/cybrid-systems/aura/main/install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-本机测过的二进制是自编的 Aura main `a407ecc12`（`aura dev (a407ecc1230af05324a31415ceeb6d6c3d4a136d)`），还没有对应的 nightly。`scripts/*.sh` 优先用 PATH 上的 `aura`，找不到才用 `~/.local/bin`。
+本机测过的二进制是自编的 Aura main `be7bc1196`（`aura dev (be7bc11960e7668289d112784aff2f974ab42406)`），还没有对应的 nightly。`scripts/*.sh` 优先用 PATH 上的 `aura`，找不到才用 `~/.local/bin`。
 
-所需最低版本：main `db235e11c`（aura#5300 的修复，P5 不再需要提示绕法），同时要包含 `8b1db8930`（#5297）、`4c61d0eb7`（#5298）、`d3f57ba46`（#5299）。nightly `6b84c78b` 也能跑通 `EVOLVE_OK` / `PIPE_OK`，但 P5 提案多数会被类型门拒掉，heal 之后订单记的版本号也不对。出了包含 `db235e11c` 的 nightly 之后，直接用 nightly 即可。
+所需最低版本：main `3f994c2c3`（aura#5303 的修复，rebind 类型门不再误拒「条件里比较参数、分支返回该参数」的提案）。还要包含以下修复：
+- `4f7ad2c29`（#5302）
+- `c2cf0b0a5`（#5301）
+- `4062afdd2`（#5294）
+- `db235e11c`（#5300）
+- `8b1db8930`（#5297）
+- `4c61d0eb7`（#5298）
+- `d3f57ba46`（#5299）
+
+nightly `6b84c78b` 也能跑通 `EVOLVE_OK` / `PIPE_OK`，但 P5 提案多数会被类型门拒掉，heal 之后订单记的版本号也不对。等出了包含 `3f994c2c3` 的 nightly，直接用 nightly 即可。
 
 自编方法（本机没有 docker，所以把 `ghcr.io/cybrid-systems/aura-ci:v0.1.1` 的 amd64 层解到一个目录里，chroot 进去编译）：
 
@@ -38,6 +47,12 @@ bash scripts/pipe.sh
 Demo 登录不在这个脚本里。账号放在 `.env`（从 `.env.example` 复制），`.env` 不进 git。
 
 forexconnect 只有 cp35–cp37 的 manylinux x86_64 轮子，要用 Python 3.7（例如 conda-forge 的 `python=3.7`），再装 `forexconnect "numpy<1.22" "pandas<1.4"`。`FXCM_URL` 必须是 `https://www.fxcorporate.com/Hosts.jsp`：走 http 时 Hosts.jsp 返回 500，登录报 ORA-499。
+
+冻结验证（见「冻结验证 frozen-v1」）：
+
+```sh
+bash scripts/frozen.sh     # 先校验 frozen/v1.sha256；缺 ECB 数据时用 scripts/fetch-ecb.py 下载；最后一行 FZ_OK
+```
 
 ```sh
 python3 bridge/fc_adapter.py probe    # 看本机能不能加载 forexconnect
@@ -334,6 +349,112 @@ ES 同样预算：12 个都进了回测，KEEP 0，训练 / 样本外 1891.33 / 
 
 `evolve.sh` 整体约 5 分 27 秒，user 13 分钟，sys 9.4 分钟。sys 时间偏高，和 aura#5302 里浮点 / 分配在 fiber 下的现象一致。
 
+## 这一版：自编 main `be7bc1196`
+
+aura#5294、#5301、#5302、#5303 都已关闭。这一版仍在 aura-ci:v0.1.1 工具链里自己编译（release 预设）。
+
+编译：本机 8 核、15 GB 内存，但常驻的外部进程占了约 10 GB，开始编译时可用内存只有 3.3 GB，所以用了 `-j4`，没敢用 `-j8`。
+- 从零编译用了 6 分 33 秒，user 19.5 分钟。
+- 可用内存最低降到 0.94 GB，也就是说编译高峰约占 2.4 GB。这个数是看 MemAvailable 掉了多少得出的；按进程汇总 RSS 的采样把别的进程也算进去了，不可信。
+
+测试：
+- `build.py test smoke` 全过。
+- `build.py test suite` 288/291（跳过 2 个），失败 1 个：`capability_5195.aura`。原因是 Restricted 下 `core:group-by`、`trie-insert` 仍被拒，已建 aura#5305。以前它被 #5301 的 parse error 盖住了，`a407ecc12` 和 nightly 上也一样。aura-fx 没用到这两个 API。
+
+### 四个修复的复现（`a407ecc12` → `be7bc1196`）
+
+| 问题 | `a407ecc12` | `be7bc1196` |
+|---|---|---|
+| aura#5294：fiber 里 channel 发「含 hash 的 list」2000 次 | 每轮 8–11 次坏 | 5 轮 × 2000 次，0 次坏；suite 里 `channel_structured_payload_4763` 跑 20 次 20 次过 |
+| aura#5301：fiber 里 lambda 的 `(if (check) …)` | parse error | `(1 1)`、`1` |
+| aura#5302：浮点累加 / 每步分配，8 fiber 加速 | 2.7× / 1.8×（串行浮点 3276 ms） | 8.5× / 7.9×（串行浮点 203 ms），整个复现 14 s → 0.95 s |
+| aura#5303：比较参数又返回参数的 rebind | 复现 A 7 种写法中 2 种被拒，复现 B 5 种中 2 种被拒 | 全部通过 |
+
+### 五个阶段对比
+
+| 项目 | `a407ecc12` | `be7bc1196` |
+|---|---|---|
+| P1 | es / pso KEEP，abc ROLLBACK，race KEEP（2347.08），重复跑结果一致 | 完全相同，`P1_DETERMINISTIC` |
+| P2 | 10/10 拒绝并记录 | 10/10 |
+| P3 NSGA-II 串行 / 8 fiber | 12.6 s / 9.1 s（1.4×） | 12.5 s / 9.0 s（1.4×，**没有变好**） |
+| P4 换段检测（现场磁带） | 4/4，误报 0 | 4/4，误报 0 |
+| P5 LLM 提案进入回测 | 12/12、12/12、9/12、9/10 | 12/12（apply 拒 0，不可行 2），KEEP 0 |
+| P5 ES 同预算 | 12/12，KEEP 0 | 12/12，KEEP 0 |
+
+P3 的 aura#5302 修好了，但 NSGA-II 没快起来。单独测每代 16 个候选的评估：串行 1488 ms，8 fiber 1084 ms。拆开看，named let 循环体里只要调用函数（`vector-ref`、`list-ref`，或一个返回常数的顶层函数），串行每步就要约 3 µs，8 fiber 也只快 2–3 倍。回测每根 bar 都会调规则闭包、读 `vector-ref`，正好撞上这个问题。已建 aura#5304，它在 `a407ecc12` 和 nightly 上也一样，不是回归。
+
+### 资源（`be7bc1196`）
+
+| 步骤 | 墙钟 | 等效核数 | 峰值内存 |
+|---|---:|---:|---:|
+| P1（两次） | 66–74 s | 5.8–6.0 | 402 MB |
+| P2 | 18.0 s | 1.0 | 317 MB |
+| P3 | 113 s | 4.2 | 558 MB |
+| P4 | 16.3 s | 1.9 | 420 MB |
+| P5 | 49 s | 0.3 | 333 MB |
+| `scripts/frozen.sh`（10 种子 + ECB） | 451 s | — | — |
+
+`evolve.sh` 整体 5 分 37 秒，user 13.4 分钟，sys 9.5 分钟。`pipe.sh` 1.3 秒，`PIPE_OK`。
+
+## 冻结验证 frozen-v1
+
+前几轮的选择器、规则池和检测器参数都是在种子 7、11、23、31、47 上反复看结果调出来的，样本内的数字偏乐观。所以这次先冻结，再在从没用过的数据上只跑一次。
+
+**冻结了什么**：都写在 `frozen/v1.json`。
+- 规则池：9 个成员，分属 switch、breakout、revert、donchian、momo、eff、flat 这几族。
+- 选择器候选：逐根选择器（`bar-fit-auto`）的 5 个噪声定义 `er<0.5`、`er<0.3`、`chop>=3`、`er<0.5x4`、`er<0.5x8`，以及 bar-alpha 0.10。
+- 门禁：tune:gate α=0.05。训练窗口 1–4，测试窗口 5–7。
+- 换段检测器：cut 0.3，k 8，horizon 40，从第 40 根开始。
+- 种子和真实数据的取法（见下文）。
+
+依赖的代码（`lib/regime`、`engine`、`members`、`drift`、`tapes`、`wf`、`metrics`、`lib/frozen.aura`、`frozen-eval.aura`、`scripts/fetch-ecb.py`）的 sha256 记在 `frozen/v1.sha256`，`scripts/frozen.sh` 先校验这些哈希再跑。
+
+**冻结提交**：`3b001c424777393e92fd08eef3a0232693020f72`，北京时间 2026-11-15 20:40 推送。`frozen/v1.json` 的 sha256 是 `cdfebc528269c47409aac44a0c0c26bea0928650f3d66347370cc1935fb9ac2c`。提交之前没有生成过新种子的行情，也没有下载过 ECB 数据。提交之后只跑了一次，没有再改任何候选或参数。
+
+**评判标准**（冻结前写定）：
+- 主指标：10 个种子合并后，逐根选择器对 SBS 的 tune:gate。
+- 次指标：单个种子上过门禁的种子数。
+- 检测器看命中率和误报。
+
+**新种子**：规则是 `sha256('aura-fx-frozen-v1:'+n) % 90000 + 1000`，n 从 0 起取前 10 个，并排除用过的 {7, 11, 23, 31, 47, 99}。得到 54234、49977、43446、12219、72505、41297、1174、68802、4425、11975。每个种子 6 条磁带，共 18 个测试窗口。
+
+### 结果（只跑一次，原样记录）
+
+| 种子 | SBS | 窗口级选择器 | 逐根选择器 | t | 过门禁 | oracle | 换段命中 / 次数 |
+|---|---:|---:|---:|---:|:-:|---:|---:|
+| 54234 | 1571.58 | 1571.58 | 1571.58 | 0.00 | | 1959.01 | 18/19 |
+| 49977 | 1846.14 | 1846.14 | 1845.78 | 0.00 | | 2113.54 | 17/18 |
+| 43446 | 1991.31 | 1991.31 | 1954.60 | -0.22 | | 2216.22 | 17/18 |
+| 12219 | 1415.71 | 1415.71 | 1413.74 | -0.60 | | 2158.45 | 21/21 |
+| 72505 | 904.53 | 904.53 | 904.53 | 0.00 | | 1668.45 | 14/16 |
+| 41297 | 1150.63 | 1145.97 | 1968.35 | 3.61 | ✓ | 2088.97 | 12/12 |
+| 1174 | 1882.44 | 1882.44 | 1721.58 | -0.73 | | 2139.24 | 16/19 |
+| 68802 | 1245.94 | 1245.94 | 1853.32 | 1.86 | ✓ | 2100.86 | 14/15 |
+| 4425 | 1386.80 | 1427.84 | 1848.56 | 2.34 | ✓ | 2208.00 | 12/13 |
+| 11975 | 1447.24 | 1447.24 | 1726.04 | 1.65 | | 1826.56 | 13/15 |
+| **合计** | **14842.30** | **14878.69** | **16808.07** | **3.28** | **3/10** | 20479.30 | **154/166** |
+
+- **逐根选择器对 SBS**：合并后 t=3.28，过门禁（KEEP），合计多 1965.77（+13%），每窗口平均多 10.92。离 oracle 还差 3671。
+  - 单种子过门禁 3/10，上一轮样本内是 1/5。
+  - 11975 的 t=1.65，差一点没过。
+  - 比 SBS 差的有 4 个：1174 差 160.86，43446 差 36.71，12219 差 1.97，49977 差 0.36。
+  - 选择器的好处来自少数 SBS 选错了族的种子（41297、4425 的 SBS 是 eff-0.5）。SBS 本来就好的种子，它没有帮助，有时更差。
+- **窗口级选择器**：合并 t=0.77，0/10 过门禁，基本就是 SBS。
+- **换段检测器**：在 166 次换段里命中 154 次（92.8%），误报 0。在 8400 根平稳磁带上报警 2 次，都在 43446 上，约每 4200 根一次。上一轮样本内是 14/14、0 次报警，新数据上有漏检，也开始出现平稳期报警。
+
+### 真实数据：ECB EUR/USD（不需要凭据）
+
+数据来自 ECB 参考汇率 `eurofxref-hist.zip` 的 USD 列。只取 2026-11-13 及以前，最后 1920 个交易日（2019-05-21 至 2026-11-13），切成 6 条 320 根的磁带，用法和合成数据相同。数据存在 `data/ecb-eurusd.csv`。规则在冻结前写定。
+
+**结果：不通过。**
+- 逐根选择器（`er<0.3`，表 revert-16 / momo-20 / momo-20）合计 -411.6，SBS（momo-20）是 881.4，t=-1.21。
+- 窗口级选择器 1071.2，t=0.33，也没过门禁。
+- oracle 是 6250.6。
+
+在日线真实汇率上，用合成磁带思路调出来的选择器没有优势，反而比只用一个规则差。这里的点差和手数假设沿用了夹具，没有按日线重新设定；真实数据也没有换段的标注，所以检测器在上面没法打分。
+
+结论：在合成磁带上，逐根选择器在新种子上合并过了门禁，但只在部分种子上有用。真实 EUR/USD 日线上不通过。不能把它当成可用的交易优势。
+
 ## 布局
 
 | 路径 | 作用 |
@@ -356,6 +477,9 @@ ES 同样预算：12 个都进了回测，KEEP 0，训练 / 样本外 1891.33 / 
 | `scripts/evolve.sh` | 跑 P1–P5，最后打印 `EVOLVE_OK` |
 | `p1-seeds.aura` / `scripts/p1-seeds.sh` | P1 在 5 个种子上的门禁对比，不提交 |
 | `p3-select.aura` | 各族成员 + 选择器在 5 个种子上的样本外对比 |
+| `frozen/v1.json` / `frozen/v1.sha256` | 冻结验证的全部参数与依赖代码哈希 |
+| `lib/frozen.aura` / `frozen-eval.aura` / `scripts/frozen.sh` | 冻结验证：新种子 + ECB，最后打印 `FZ_OK` |
+| `scripts/fetch-ecb.py` / `data/ecb-eurusd.csv` | 下载 ECB 参考汇率 USD 列 |
 | `bridge/fc_adapter.py` | probe、login、paper、live（含 --offline / --dry-run），自带风控检查 |
 
 订单字段对齐 ForexConnect 的 `create_order_request`：`order_type=OM`（`TRUE_MARKET_OPEN`）、`buy_sell` 为 `B` 或 `S`、`amount` 已经是基础货币单位。live 路径按品种在 OFFERS 里找报价（`Common.get_offer` 会跳过订阅状态不是 `T` 的报价），不会再乘一次 `base_unit_size`。
