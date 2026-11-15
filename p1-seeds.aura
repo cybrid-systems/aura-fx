@@ -1,0 +1,61 @@
+;; P1 on several seeds: the same walk-forward + race + gate as
+;; p1-evolve.aura (same budget, folds, alpha and deflated Sharpe), but
+;; nothing is committed. It answers one question: is a KEEP on seed 7 a
+;; property of the method or of that fixture? out/p1-seeds.json.
+;; Run by scripts/p1-seeds.sh, not by evolve.sh (about a minute per seed).
+
+(require "lib/wf")
+
+(define SEEDS (list 7 11 23 31 47))
+(define BUDGET 64)
+(define POP 8)
+
+(boot! (params-code BASE-PARAMS))
+(make-directory "out")
+
+(define ALL-FOLDS (range-list (- (car WF-FOLDS) RACE-INNER) (+ 1 (car (reverse WF-FOLDS)))))
+(define (r2 x) (m-round x 2))
+
+(define (run-seed seed)
+  (let* ((t0 (monotonic-ms))
+         (tapes (make-tapes seed 6))
+         (base-oos (baseline-oos tapes BASE-PARAMS))
+         (kinds (map (lambda (kind)
+                       (let* ((full (walk-forward kind seed tapes BUDGET POP par-map ALL-FOLDS))
+                              (wf (wf-restrict full WF-FOLDS)))
+                         (hash "kind" kind "full" full "wf" wf
+                               "gate" (oos-gate (hash-ref wf "oos") base-oos (hash-ref wf "trial-srs")))))
+                     (list "es" "pso" "abc")))
+         (race-wf (walk-forward-race (map (lambda (r) (hash-ref r "full")) kinds) tapes))
+         (race (hash "kind" "race" "wf" race-wf
+                     "gate" (oos-gate (hash-ref race-wf "oos") base-oos (hash-ref race-wf "trial-srs"))))
+         (rows (map (lambda (r)
+                      (let ((g (hash-ref r "gate")))
+                        (hash "kind" (hash-ref r "kind")
+                              "oos-sum" (r2 (m-sum (hash-ref (hash-ref r "wf") "oos")))
+                              "t" (r2 (hash-ref g "t")) "crit" (hash-ref g "crit")
+                              "deflated" (r2 (hash-ref g "deflated")) "trials" (hash-ref g "trials")
+                              "decision" (if (hash-ref g "keep") "KEEP" "ROLLBACK"))))
+                    (append kinds (list race)))))
+    (hash "seed" seed "baseline-oos" (r2 (m-sum base-oos)) "rows" rows
+          "race-picks" (map (lambda (f) (hash-ref f "winner" "")) (hash-ref race-wf "folds"))
+          "ms" (- (monotonic-ms) t0))))
+
+(define results (map run-seed SEEDS))
+(write-file "out/p1-seeds.json"
+  (json-encode (map (lambda (r) (hash "seed" (hash-ref r "seed") "baseline-oos" (hash-ref r "baseline-oos")
+                                      "rows" (hash-ref r "rows") "race-picks" (hash-ref r "race-picks")))
+                    results)))
+(for-each (lambda (r)
+  (display "P1S seed=") (display (hash-ref r "seed")) (display " baseline=") (display (hash-ref r "baseline-oos"))
+  (for-each (lambda (x) (display " ") (display (hash-ref x "kind")) (display "=") (display (hash-ref x "oos-sum"))
+              (display "(t=") (display (hash-ref x "t")) (display ",dsr-defl=") (display (hash-ref x "deflated"))
+              (display ")") (display (if (string=? (hash-ref x "decision") "KEEP") "KEEP" "-")))
+            (hash-ref r "rows"))
+  (display " picks=") (display (hash-ref r "race-picks")) (display " ms=") (display (hash-ref r "ms")) (newline))
+  results)
+(define (keeps kind) (length (filter (lambda (r) (pair? (filter (lambda (x) (and (string=? (hash-ref x "kind") kind) (string=? (hash-ref x "decision") "KEEP"))) (hash-ref r "rows")))) results)))
+(display "P1S keeps es=") (display (keeps "es")) (display " pso=") (display (keeps "pso"))
+(display " abc=") (display (keeps "abc")) (display " race=") (display (keeps "race"))
+(display " of ") (display (length results)) (newline)
+(display "P1S_OK") (newline)

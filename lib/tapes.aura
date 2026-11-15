@@ -79,6 +79,14 @@
           (vector-set! v k s)
           (loop (+ k 1) (if (< k n) (+ s (vector-ref px k)) s)))))))
 
+;; |x| for floats
+(define (tape-absf x) (if (< x 0.0) (- x) x))
+
+;; path length of the 16 one-bar moves ending at i (sum of |delta|)
+(define (tape-path px i)
+  (let loop ((k (- i 15)) (s 0.0))
+    (if (> k i) s (loop (+ k 1) (+ s (tape-absf (- (vector-ref px k) (vector-ref px (- k 1)))))))))
+
 ;; sign changes among the 16 one-bar deltas ending at i (lib/signal chop-count)
 (define (tape-chop-at px i)
   (if (< i 17) 0.0
@@ -94,18 +102,25 @@
   (let* ((px (list->vector prices))
          (n (vector-length px))
          (chop (make-vector n 0.0))
-         (slope (make-vector n 0.0)))
+         (slope (make-vector n 0.0))
+         (er (make-vector n 0.0))
+         (vol (make-vector n 0.0)))
     (let loop ((i 0))
       (if (< i n)
         (begin
           (vector-set! chop i (tape-chop-at px i))
+          (if (>= i 16)
+            (let ((path (tape-path px i)))
+              (vector-set! er i (if (> path 0.0) (/ (tape-absf (- (vector-ref px i) (vector-ref px (- i 16)))) path) 0.0))
+              (vector-set! vol i (/ (* 10000.0 path) 16.0)))
+            #f)
           (vector-set! slope i
                        (if (< i 16) 0.0
                          (* 10000.0 (- (vector-ref px i) (vector-ref px (- i 16))))))
           (loop (+ i 1)))
         #t))
     (hash "id" id "n" n "px" px "psum" (tape-psum px n)
-          "chop" chop "slope" slope "regimes" regimes)))
+          "chop" chop "slope" slope "er" er "vol" vol "regimes" regimes)))
 
 (define (make-tape seed idx)
   (let ((pr (tape-prices seed idx)))
@@ -115,6 +130,23 @@
 (define (make-tapes seed k)
   (let loop ((i 0) (acc (list)))
     (if (>= i k) (reverse acc) (loop (+ i 1) (cons (make-tape seed i) acc)))))
+
+;; A stationary tape: all 8 segments in one regime (k: 0 up, 1 range,
+;; 2 down), same draws per segment as tape-prices otherwise. Used only to
+;; count false regime-change alarms; the walk-forward tapes are unchanged.
+(define (tape-prices-fixed seed idx k)
+  (let loop ((s 0) (p 1.10000) (acc (list)) (regs (list)))
+    (if (>= s TAPE-SEGS)
+      (cons (reverse acc) (reverse regs))
+      (let* ((r (tape-rng seed idx s))
+             (regime (tape-regime-name k))
+             (seg (tape-segment r regime p acc)))
+        (loop (+ s 1) (cdr seg) (car seg) (cons regime regs))))))
+
+(define (make-tape-fixed seed idx k)
+  (let ((pr (tape-prices-fixed seed idx k)))
+    (tape-build (string-append "s" (number->string seed) "-f" (number->string idx) "-" (tape-regime-name k))
+                (cdr pr) (car pr))))
 
 ;; The original 240-bar fixture as a tape (lib/tape), for the live loop.
 (define (tape-from-list id prices)
@@ -128,6 +160,10 @@
     (/ (- (vector-ref ps (+ i 1)) (vector-ref ps (+ (- i n) 1))) n)))
 (define (tape-chop t i) (vector-ref (hash-ref t "chop") i))
 (define (tape-slope t i) (vector-ref (hash-ref t "slope") i))
+;; efficiency ratio over 16 bars: |net move| / path length, 0..1
+(define (tape-er t i) (vector-ref (hash-ref t "er") i))
+;; mean |one-bar move| over 16 bars, in pips
+(define (tape-vol t i) (vector-ref (hash-ref t "vol") i))
 (define (tape-hi t i n)
   ;; max of the n bars before i (i excluded)
   (let ((px (hash-ref t "px")))

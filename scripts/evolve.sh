@@ -5,7 +5,8 @@
 # P5 runs only when MINIMAX_API_KEY is set (the key is never printed).
 set -eu
 cd "$(dirname "$0")/.."
-export PATH="$HOME/.local/bin:$PATH"
+# Use the aura on PATH if there is one (e.g. a self-built main), else the nightly install.
+command -v aura >/dev/null 2>&1 || export PATH="$HOME/.local/bin:$PATH"
 mkdir -p out
 
 # Run a command and print wall time, CPU time, effective cores and the peak
@@ -32,6 +33,7 @@ PY
 ok() { grep -q "^$2\$" "out/log-$1.txt" || { echo "$1 did not print $2"; exit 1; }; }
 
 echo "host: $(nproc) cores, $(awk '/MemTotal/ {printf "%.1f GB", $2/1048576}' /proc/meminfo)"
+echo "aura: $(aura --version)"
 
 # P1 twice: the same seed must give the same report.
 meter p1 aura run p1-evolve.aura --quiet

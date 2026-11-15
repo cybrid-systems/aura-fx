@@ -3,7 +3,11 @@
 ;;
 ;; Train tasks are windows 1..4 of the six seed-7 tapes, test tasks are
 ;; windows 5..7 (the same 18 windows P1 tests on). meta:disjoint? proves
-;; the two task sets share no id.
+;; the two task sets share no id. The pool holds the rule-switch members
+;; plus one or two members of other families (revert, donchian, momo,
+;; eff, flat); besides the per-window selectors, a bar-level regime
+;; switch (lib/regime bar-fit-auto) is fitted on train and tested.
+;; p3-select.aura runs the selectors on more seeds.
 
 (require "lib/p1state")
 (require "lib/members")
@@ -147,7 +151,8 @@
 ;; P1's ES candidate (fold 7 params) joins as a member even when its
 ;; commit was rolled back: the selector gate below judges it again.
 (define p1-member (switch-member "p1-es" (hash-ref (hash-ref (p1-report) "commit") "params")))
-(define all-members (append base-members (list (switch-member "shipped" BASE-PARAMS) p1-member) elite-members))
+(define all-members (append base-members (list (switch-member "shipped" BASE-PARAMS) p1-member) elite-members
+                            (family-members)))
 
 (define fit-base (fit-selector base-members))
 (define fit-all (fit-selector all-members))
@@ -233,6 +238,14 @@
 (define gate-rg (tune:gate rg-oos rg-sbs-oos (hash "alpha" 0.05)))
 ;; oracle: the best member of every test window, picked after the fact
 (define vbs-oos (map (lambda (h) (apply max (map (lambda (n) (hash-ref h n)) member-names))) test-pnls))
+;; ── bar-level regime switch (lib/regime bar-fit-auto) on the same pool ──
+(define member-rule-hash (foldl (lambda (h m) (hash-set h (hash-ref m "name") (member-closure m))) (hash) all-members))
+(define t-bar0 (monotonic-ms))
+(define bar-fit-res (bar-fit-auto member-names member-rule-hash rg-sbs train par-map))
+(define t-bar1 (monotonic-ms))
+(define bar-table (hash-ref bar-fit-res "table"))
+(define bar-oos (hash-ref (eval-rule (bar-composite bar-table member-rule-hash) test) "pnls"))
+(define gate-bar (tune:gate bar-oos rg-sbs-oos (hash "alpha" 0.05)))
 (define rg-switches (length (filter (lambda (r) (not (string=? (hash-ref r "why") "sbs"))) rg-rows)))
 (define rg-left-sbs (length (filter (lambda (r) (not (string=? (hash-ref r "member") rg-sbs))) rg-rows)))
 
@@ -276,13 +289,18 @@
                        "gate-vs-sbs" (hash "keep" (hash-ref gate-rg "keep") "t" (r2 (hash-ref gate-rg "t"))
                                            "crit" (hash-ref gate-rg "crit") "mean-diff" (r2 (hash-ref gate-rg "mean-diff")))
                        "windows-off-sbs" rg-left-sbs
+                       "bar" (hash "def" (hash-ref bar-fit-res "def") "table" bar-table
+                                   "steps" (hash-ref bar-fit-res "steps") "defs" (hash-ref bar-fit-res "all")
+                                   "train" (r2 (hash-ref bar-fit-res "train")) "oos" (r2 (m-sum bar-oos))
+                                   "gate-vs-sbs" (hash "keep" (hash-ref gate-bar "keep") "t" (r2 (hash-ref gate-bar "t"))
+                                                       "crit" (hash-ref gate-bar "crit")))
                        "rows" (map (lambda (r) (hash "window" (hash-ref r "window") "cell" (hash-ref r "cell")
                                                      "member" (hash-ref r "member") "why" (hash-ref r "why")
                                                      "pnl" (r2 (hash-ref r "pnl"))))
                                    rg-rows))))
 
 (write-file "out/p3.json" (json-encode report))
-(write-file "out/p3-timing.json" (json-encode (hash "nsga-serial-ms" (- t1 t0) "nsga-parallel-ms" (- t2 t1)
+(write-file "out/p3-timing.json" (json-encode (hash "nsga-serial-ms" (- t1 t0) "nsga-parallel-ms" (- t2 t1) "bar-fit-ms" (- t-bar1 t-bar0)
                                                     "workers" PAR-WORKERS)))
 
 (display "P3 tasks train=") (display (length train)) (display " test=") (display (length test))
@@ -304,4 +322,10 @@
 (display "P3 regime selector oos=") (display (r2 (m-sum rg-oos))) (display " sbs(") (display rg-sbs) (display ")=")
 (display (r2 (m-sum rg-sbs-oos))) (display " t=") (display (r2 (hash-ref gate-rg "t"))) (display "/") (display (hash-ref gate-rg "crit"))
 (display " keep=") (display (hash-ref gate-rg "keep")) (display " vbs-oracle=") (display (r2 (m-sum vbs-oos))) (display " off-sbs=") (display rg-left-sbs) (display "/") (display (length rg-rows)) (newline)
+(display "P3 bar selector def=") (display (hash-ref bar-fit-res "def"))
+(display " table=") (display (map (lambda (c) (hash-ref bar-table c)) BAR-CELLS))
+(display " train=") (display (r2 (hash-ref bar-fit-res "train"))) (display " oos=") (display (r2 (m-sum bar-oos)))
+(display " sbs=") (display (r2 (m-sum rg-sbs-oos))) (display " t=") (display (r2 (hash-ref gate-bar "t")))
+(display "/") (display (hash-ref gate-bar "crit")) (display " keep=") (display (hash-ref gate-bar "keep"))
+(display " fit-ms=") (display (- t-bar1 t-bar0)) (newline)
 (display "P3_OK") (newline)

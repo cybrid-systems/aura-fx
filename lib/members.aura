@@ -10,17 +10,26 @@
 (define (switch-member name params) (hash "name" name "kind" "switch" "params" params))
 (define (breakout-member name n) (hash "name" name "kind" "breakout" "params" (list n)))
 
+;; Other families: revert (n thm), momo (s), eff (e), flat ().
+(define (family-member name kind params) (hash "name" name "kind" kind "params" params))
+
 (define (member-closure m)
-  (if (string=? (hash-ref m "kind") "breakout")
-    (let ((n (car (hash-ref m "params"))))
-      (lambda (t i prev) (rule-breakout t i prev n 1)))
-    (params-rule (hash-ref m "params"))))
+  (let ((k (hash-ref m "kind")) (ps (hash-ref m "params")))
+    (cond
+      ((string=? k "breakout") (let ((n (car ps))) (lambda (t i prev) (rule-breakout t i prev n 1))))
+      ((string=? k "revert") (let ((n (car ps)) (th (car (cdr ps)))) (lambda (t i prev) (rule-revert t i prev n th 1))))
+      ((string=? k "momo") (let ((sl (car ps))) (lambda (t i prev) (rule-momo t i prev sl 1))))
+      ((string=? k "eff") (let ((e (car ps))) (lambda (t i prev) (rule-eff t i prev e 1))))
+      ((string=? k "flat") (lambda (t i prev) (rule-flat t i prev)))
+      (else (params-rule ps)))))
 
 (define (member-code m)
-  (if (string=? (hash-ref m "kind") "breakout")
-    (string-append "(lambda (t i prev) (rule-breakout t i prev "
-                   (number->string (car (hash-ref m "params"))) " 1))")
-    (params-code (hash-ref m "params"))))
+  (let ((k (hash-ref m "kind")) (ps (hash-ref m "params")))
+    (if (string=? k "switch")
+      (params-code ps)
+      (string-append "(lambda (t i prev) (rule-" k " t i prev"
+                     (apply string-append (map (lambda (x) (string-append " " (num->text x))) ps))
+                     (if (string=? k "flat") "" " 1") "))"))))
 
 ;; The three members the repo shipped, on tapes: trend never fades
 ;; (chop switch 99), meanrev always fades (switch 0), breakout 12 bars.
@@ -35,3 +44,13 @@
 
 (define (json->member h)
   (hash "name" (hash-ref h "name") "kind" (hash-ref h "kind") "params" (hash-ref h "params")))
+
+;; One or two members of every other family, fixed before any test window
+;; is read (parameters from the middle of each family's sensible range).
+(define (family-members)
+  (list (family-member "revert-8" "revert" (list 8 6.0))
+        (family-member "revert-16" "revert" (list 16 10.0))
+        (family-member "donchian-20" "breakout" (list 20))
+        (family-member "momo-20" "momo" (list 20.0))
+        (family-member "eff-0.5" "eff" (list 0.5))
+        (family-member "flat" "flat" (list))))
