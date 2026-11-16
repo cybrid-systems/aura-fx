@@ -1,0 +1,48 @@
+;; v6 train search: every adaptive variant on the 7-pair training basket.
+;; VARIANTS (env) = comma-separated variant indices into V6-VARIANTS.
+;; Decisions start 2016-07-01 (the first W days are history only) and run
+;; to the end of 2023. Writes out/v6/run-<idx>.json per variant.
+(require "lib/v6")
+(require "std/fs" all:)
+
+(define V6-VARIANTS
+  (apply append (map (lambda (N)
+                       (apply append (map (lambda (W)
+                                            (map (lambda (m) (hash "N" N "W" W "method" m))
+                                                 (list "greedy" "gate" "race" "drift")))
+                                          (list 60 120 252))))
+                     (list 20 60))))
+(define START "2016-07-01")
+
+(v6-boot!)
+(define data (v6-load "data/v6/train-net.csv" "data/v6/train-pos.csv" "data/v6/train-unit.csv"))
+(define idxs (map string->number (string-split (getenv "VARIANTS") ",")))
+(for-each
+  (lambda (vi)
+    (let* ((opts (list-ref V6-VARIANTS vi)) (t0 (monotonic-ms))
+           (a (v6-day-index data START))
+           (r (v6-run data opts a (hash-ref data "n"))))
+      (write-file (string-append "out/v6/run-" (number->string vi) ".json")
+        (json-encode
+          (hash "variant" vi "N" (hash-ref opts "N") "W" (hash-ref opts "W") "method" (hash-ref opts "method")
+                "days" (let loop ((i (- (hash-ref data "n") 1)) (acc (list)))
+                         (if (< i a) acc (loop (- i 1) (cons (vector-ref (hash-ref data "days") i) acc))))
+                "daily" (map (lambda (x) (m-round x 2)) (hash-ref r "daily"))
+                "switches" (hash-ref r "switches") "heals" (hash-ref r "heals")
+                "swap-fail" (hash-ref r "swap-fail") "trial-fail" (hash-ref r "trial-fail")
+                "alarms" (hash-ref r "alarms") "decisions" (hash-ref r "decisions")
+                "dec-ms" (hash-ref r "dec-ms") "swap-ms" (hash-ref r "swap-ms")
+                "switch-cost" (m-round (hash-ref r "switch-cost") 2)
+                "timeline" (hash-ref r "timeline")
+                "ms" (- (monotonic-ms) t0))))
+      (display "V6 variant ") (display vi) (display " ") (display (hash-ref opts "method"))
+      (display " N=") (display (hash-ref opts "N")) (display " W=") (display (hash-ref opts "W"))
+      (display " sum=") (display (m-round (m-sum (hash-ref r "daily")) 1))
+      (display " switches=") (display (hash-ref r "switches"))
+      (display " heals=") (display (hash-ref r "heals"))
+      (display " fails=") (display (hash-ref r "swap-fail"))
+      (display " trial-fail=") (display (hash-ref r "trial-fail"))
+      (display " drift=") (display (hash-ref r "alarms"))
+      (display " ms=") (display (- (monotonic-ms) t0)) (newline)))
+  idxs)
+(display "V6_RUN_OK") (newline)

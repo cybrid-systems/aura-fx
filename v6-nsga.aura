@@ -1,0 +1,114 @@
+;; v6 design-period sleeve blend: 16 NSGA-II evaluations + 8 ES evaluations.
+;; Weights are on the four committed sleeves (carry-eq-d1, xsmom-63-d1,
+;; resid-mr-60-d1, usd-tsmom-63-d1), in [0, 1], renormalized to sum 1
+;; (all-zero is flat). Fitness uses only 2016-07-01 .. 2020-12-31.
+;; nsga2-blend = front member with the highest design Sharpe (tie: higher
+;; sum). es-blend = search:best of a (mu=2, lambda=4) ES, two batches.
+;; All 24 genomes are written to out/v6/evolved.json and count as trials.
+(require "std/fs" all:)
+(require "std/string" all:)
+(require "std/list" all:)
+(require "std/search" all:)
+(require "std/pareto" all:)
+(require "std/evo-core" all:)
+
+(define SLEEVES (list "carry-eq-d1" "xsmom-63-d1" "resid-mr-60-d1" "usd-tsmom-63-d1"))
+(define D0 "2016-07-01")
+(define D1 "2021-01-01")
+
+(define (v6-sharpe xs)
+  (let* ((n (exact->inexact (length xs))))
+    (if (< n 2) 0.0
+      (let* ((m (/ (apply + xs) n))
+             (v (/ (apply + (map (lambda (x) (* (- x m) (- x m))) xs)) n)))
+        (if (< v 1e-12) 0.0 (/ m (sqrt v)))))))
+
+(define (v6-col head name)
+  (let loop ((xs head) (i 0))
+    (cond ((null? xs) (error (string-append "missing sleeve " name)))
+          ((string=? (car xs) name) i)
+          (else (loop (cdr xs) (+ i 1))))))
+
+(define (v6-read-sleeves path)
+  (let* ((lines (filter (lambda (l) (> (string-length l) 0)) (string-split (read-file path) "\n")))
+         (head (string-split (car lines) ","))
+         (idx (map (lambda (s) (v6-col head s)) SLEEVES))
+         (rows (map (lambda (l) (string-split l ",")) (cdr lines)))
+         (kept (filter (lambda (r) (if (string<? (car r) D0) #f (string<? (car r) D1))) rows)))
+    (map (lambda (k)
+           (list->vector (map (lambda (r) (exact->inexact (string->number (list-ref r k)))) kept)))
+         idx)))
+
+(define (v6-norm w)
+  (let* ((xs (map (lambda (x) (max 0.0 (exact->inexact x))) w)) (s (apply + xs)))
+    (if (< s 1e-12) (list 0.0 0.0 0.0 0.0) (map (lambda (x) (/ x s)) xs))))
+
+(define (v6-blend-series sleeves w)
+  (let* ((ww (list->vector (v6-norm w))) (n (vector-length (car sleeves))))
+    (let loop ((i 0) (acc (list)))
+      (if (>= i n) (reverse acc)
+        (loop (+ i 1)
+              (cons (apply + (map (lambda (k) (* (vector-ref ww k) (vector-ref (list-ref sleeves k) i)))
+                                  (list 0 1 2 3)))
+                    acc))))))
+
+(define sleeves (v6-read-sleeves "data/v6/train-net.csv"))
+(define log-evals (list))
+
+(define (v6-eval-w w)
+  (let* ((xs (v6-blend-series sleeves w)) (sh (v6-sharpe xs)) (sm (apply + xs)))
+    (set! log-evals (cons (hash "weights" (v6-norm w) "raw" w "sharpe" sh "sum" sm) log-evals))
+    (hash "sharpe" sh "sum" sm)))
+
+(define (v6-eval-cand c)
+  (let ((g (evo:candidate-genome c)))
+    (v6-eval-w g)
+    (list (hash-ref (car log-evals) "sharpe") (hash-ref (car log-evals) "sum"))))
+
+(define ns (nsga2:make (hash "dim" 4 "pop" 8 "seed" 42
+                             "bounds" (list (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0))
+                             "objectives" (list "sharpe" "sum")
+                             "dirs" (list "max" "max"))))
+(nsga2:run! ns v6-eval-cand 16)
+(define nsga-front (nsga2:front ns))
+(define nsga-log (reverse log-evals))
+(define nsga-pick
+  (let loop ((xs nsga-front) (best #f) (bsh -1e9) (bsm -1e99))
+    (if (null? xs) best
+      (let* ((e (car xs)) (g (evo:candidate-genome (hash-ref e "cand")))
+             (ev (v6-eval-w g)) (sh (hash-ref ev "sharpe")) (sm (hash-ref ev "sum")))
+        (set! log-evals (cdr log-evals))
+        (if (if (> sh bsh) #t (if (= sh bsh) (> sm bsm) #f))
+          (loop (cdr xs) (hash "weights" (v6-norm g) "raw" g "sharpe" sh "sum" sm) sh sm)
+          (loop (cdr xs) best bsh bsm))))))
+
+(set! log-evals (list))
+(define (es-fit g)
+  (hash-ref (v6-eval-w g) "sharpe"))
+(define st0 (search:init "es" (hash "dim" 4 "pop" 4 "mu" 2 "lambda" 4 "sigma" 0.2
+                                    "bounds" (list (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0))
+                                    "seed" 7)))
+(define st1 (search:run st0 es-fit 2))
+(define es-log (reverse log-evals))
+(define es-pick (hash "weights" (v6-norm (search:best st1)) "raw" (search:best st1)
+                      "sharpe" (search:best-score st1) "sum"
+                      (let ((xs (v6-blend-series sleeves (search:best st1)))) (apply + xs))))
+
+(define out (hash "nsga2-blend" nsga-pick
+                  "es-blend" es-pick
+                  "nsga2-evals" nsga-log
+                  "es-evals" es-log
+                  "nsga2-front-size" (length nsga-front)
+                  "nsga2-nfe" (hash-ref (nsga2:report ns) "nfe")
+                  "sleeves" SLEEVES
+                  "design-from" D0 "design-to" D1
+                  "budget" (hash "nsga2" 16 "es" 8 "n" 24)))
+(write-file "out/v6/evolved.json" (json-encode out))
+(display "V6 NSGA2 blend sharpe=") (display (hash-ref nsga-pick "sharpe"))
+(display " sum=") (display (hash-ref nsga-pick "sum"))
+(display " w=") (display (hash-ref nsga-pick "weights")) (newline)
+(display "V6 ES blend sharpe=") (display (hash-ref es-pick "sharpe"))
+(display " sum=") (display (hash-ref es-pick "sum"))
+(display " w=") (display (hash-ref es-pick "weights")) (newline)
+(display "V6_NSGA_OK nsga-evals=") (display (length nsga-log))
+(display " es-evals=") (display (length es-log)) (newline)

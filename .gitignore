@@ -8,3 +8,4 @@ __pycache__/
 !.env.example
 data/raw-dukascopy/
 data/raw-dukascopy-m1/
+data/v6/*-h1.csv
