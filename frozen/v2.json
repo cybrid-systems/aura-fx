@@ -1,0 +1,147 @@
+{
+ "version": "frozen-v2",
+ "note": "Frozen before the holdout (2024-01-01 .. 2026-10-31) was read by any rule, selector or detector. Do not edit; a change needs frozen/v3.json.",
+ "pool": [
+  {
+   "name": "trend",
+   "kind": "switch",
+   "params": [
+    8,
+    2.5,
+    6.0,
+    99
+   ]
+  },
+  {
+   "name": "meanrev",
+   "kind": "switch",
+   "params": [
+    8,
+    2.5,
+    6.0,
+    0
+   ]
+  },
+  {
+   "name": "breakout",
+   "kind": "breakout",
+   "params": [
+    12
+   ]
+  },
+  {
+   "name": "revert-8",
+   "kind": "revert",
+   "params": [
+    8,
+    6.0
+   ]
+  },
+  {
+   "name": "revert-16",
+   "kind": "revert",
+   "params": [
+    16,
+    10.0
+   ]
+  },
+  {
+   "name": "donchian-20",
+   "kind": "breakout",
+   "params": [
+    20
+   ]
+  },
+  {
+   "name": "momo-20",
+   "kind": "momo",
+   "params": [
+    20.0
+   ]
+  },
+  {
+   "name": "eff-0.5",
+   "kind": "eff",
+   "params": [
+    0.5
+   ]
+  },
+  {
+   "name": "flat",
+   "kind": "flat",
+   "params": []
+  }
+ ],
+ "selector": {
+  "noise-defs": [
+   "er<0.5",
+   "er<0.3",
+   "chop>=3",
+   "er<0.5x4",
+   "er<0.5x8"
+  ],
+  "bar-alpha": 0.1,
+  "gate-alpha": 0.05,
+  "windows": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "primary": "holdout: tune:gate (paired t over holdout windows, alpha gate-alpha) of the bar-level selector against SBS = the single member with the best train pnl",
+  "secondary": "holdout per-period sums and gates; per-window regime selector against SBS; bar-level selector against the best member that trades (best non-flat member on train)"
+ },
+ "detector": {
+  "cut": 0.3,
+  "k": 8,
+  "horizon": 40,
+  "from-bar": 40,
+  "calibrated-on": "seed 7, six tapes (P4 grid cut {0.3,0.5,0.7} x k {1,2,4,8,12})",
+  "truth": "after-the-fact label of every 40-bar segment: efficiency ratio of the whole segment below label-er-cut -> noise, else up/down by the sign of the net move; a change is a segment whose label differs from the previous one",
+  "label-er-cut": 0.3
+ },
+ "costs": {
+  "spread-pips": 1.3,
+  "half-spread": 6.5e-05,
+  "lot-units": 10000,
+  "commission": 0,
+  "basis": "FXCM Standard account is spread-only (no commission). 2026 third-party measurements of its EUR/USD average spread: 0.87 pips (compareforexbrokers, Oct 2026), 1.08 pips (brokersprofile, live FCA account, Apr-May 2026), 1.2 pips (brokeranalysis), 1.30 pips (fxlists). The check uses the high end, 1.3 pips, paid as half-spread on every fill around the Dukascopy bid/ask mid. Lot: 10,000 EUR (one FXCM mini lot), pnl in USD. For reference only, the Dukascopy hourly-close bid/ask spread on the train range (2019-2023) has median 0.3 and mean 0.52 pips (interbank ECN level), well below what a retail Standard account pays."
+ },
+ "data": {
+  "source": "Dukascopy public datafeed, https://datafeed.dukascopy.com/datafeed/EURUSD/{yyyy}/{mm0}/{BID|ASK}_candles_hour_1.bi5, no login",
+  "fetch": "scripts/fetch-dukascopy.py",
+  "csv": "data/dukascopy-eurusd-h1.csv",
+  "months": [
+   "2019-01",
+   "2026-10"
+  ],
+  "bar": "one hour, close; price = (bid close + ask close) / 2; hours with zero bid volume (market closed) are dropped",
+  "tape-bars": 320,
+  "window-bars": 40,
+  "csv-sha256": "60330c30fa98043c2224e084bf1f9eec9e10bec2404a64a7c320c8e573d86ecc",
+  "rows": 48840,
+  "downloaded": "2026-11-16 (Asia/Shanghai); only row counts and the train-range spread were looked at before the freeze"
+ },
+ "split": {
+  "train": [
+   "2019-01-01",
+   "2024-01-01"
+  ],
+  "holdout": [
+   "2024-01-01",
+   "2026-11-01"
+  ],
+  "rule": "tapes are consecutive 320-bar chunks inside each range (a partial last chunk is dropped, no tape crosses the split); window 0 of each tape is warm-up, windows 1-7 are used"
+ },
+ "periods": [
+  "2024-01-01",
+  "2024-07-01",
+  "2025-01-01",
+  "2025-07-01",
+  "2026-01-01",
+  "2026-11-01"
+ ]
+}

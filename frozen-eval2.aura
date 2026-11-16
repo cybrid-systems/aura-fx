@@ -1,0 +1,43 @@
+;; Runs the frozen real-data check v2 once: scripts/frozen2.sh verifies
+;; the hashes first. Writes out/frozen-v2.json.
+(require "lib/frozen2")
+(require "std/fs" all:)
+
+(define spec (json-parse (read-file "frozen/v2.json")))
+(fz-check-defs spec)
+(define costs (hash-ref spec "costs"))
+(if (not (= ELOT (hash-ref costs "lot-units"))) (error "frozen lot differs from ELOT") #t)
+(set! EHALF (hash-ref costs "half-spread"))
+(boot! (params-code BASE-PARAMS))
+(make-directory "out")
+
+;; The cost must reach the fibers too: same pnl on a fixed probe in both.
+(define probe-tape (car (make-tapes 7 1)))
+(define probe-rule (lambda (t i prev) (if (even? (quotient i 5)) 1 -1)))
+(define probe-main (hash-ref (sim probe-rule probe-tape 40 80) "pnl"))
+(define probe-fiber (fiber:join (fiber:spawn (lambda () (hash-ref (sim probe-rule probe-tape 40 80) "pnl")))))
+(if (not (= probe-main probe-fiber)) (error "EHALF differs inside a fiber") #t)
+
+(define t0 (monotonic-ms))
+(define rows (fz2-load (hash-ref (hash-ref spec "data") "csv")))
+(define split (hash-ref spec "split"))
+(define lcut (hash-ref (hash-ref spec "detector") "label-er-cut"))
+(define train-tapes (fz2-tapes rows (car (hash-ref split "train")) (cadr (hash-ref split "train")) "tr" lcut))
+(define test-tapes (fz2-tapes rows (car (hash-ref split "holdout")) (cadr (hash-ref split "holdout")) "ho" lcut))
+(define sel (fz2-select spec train-tapes test-tapes))
+(define det-test (fz2-detect spec test-tapes))
+(define det-train (fz2-detect spec train-tapes))
+(define report (hash "spec-version" (hash-ref spec "version") "half-spread" EHALF "rows" (length rows)
+                     "select" sel "detect-holdout" det-test "detect-train" det-train "ms" (- (monotonic-ms) t0)))
+(write-file "out/frozen-v2.json" (json-encode report))
+
+(display "FZ2 rows=") (display (length rows)) (display " train-tapes=") (display (length train-tapes))
+(display " holdout-tapes=") (display (length test-tapes)) (display " half-spread=") (display EHALF) (newline)
+(for-each (lambda (k) (display "FZ2 ") (display k) (display " ") (display (hash-ref sel k)) (newline))
+          (list "sbs" "train-sums" "test-sums" "sbs-sum" "bar-sum" "regime-sum" "oracle-sum" "bar-vs-sbs" "regime-vs-sbs" "best-active" "best-active-sum" "bar-vs-best-active"
+                "bar-def" "bar-train" "bar-table" "train-windows" "test-windows"))
+(for-each (lambda (p) (display "FZ2 period ") (display (hash->list p)) (newline)) (hash-ref sel "periods"))
+(display "FZ2 detect-holdout ") (display (hash->list det-test)) (newline)
+(display "FZ2 detect-train ") (display (hash->list det-train)) (newline)
+(display "FZ2 ms=") (display (- (monotonic-ms) t0)) (newline)
+(display "FZ2_OK") (newline)
