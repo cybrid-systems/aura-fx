@@ -1,0 +1,25 @@
+v7 paper inputs (public, no login). Official P&L starts on the first
+complete D1 on or after freeze-date 2026-11-16. Pre-freeze days are
+as-if reference only.
+
+Policy rates (BIS WS_CBPOL, previous-month use, no look-ahead):
+  python3 scripts/v6-rates.py data/v7/rates-paper.csv data/v7/vix-paper.csv \
+    2022-12 2026-11 US XM NO SE HU NZ JP CA CH
+
+VIX (tried in order; this pull used datasets/finance-vix CBOE close):
+  https://raw.githubusercontent.com/datasets/finance-vix/main/data/vix-daily.csv
+  https://cdn.jsdelivr.net/gh/datasets/finance-vix/data/vix-daily.csv
+  https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
+  https://stooq.com/q/d/l/?s=^vix&i=d
+
+Dukascopy H1 BID/ASK for the 8-pair traded basket plus already-seen
+helpers, 2023-01 through the latest published month (2026-11 was HTTP 404
+at the first run and was skipped by the v7.1 fetcher):
+  python3 scripts/v7-fetch.py paper 2023-01 2026-11 \
+    EURNOK EURSEK USDHUF EURHUF NZDJPY CADJPY CHFJPY EURNZD \
+    USDJPY USDNOK USDSEK NZDUSD
+
+Scale: 1e-3 for JPY and HUF quotes, 1e-5 otherwise.
+Raw .bi5 and H1 CSVs are gitignored; rebuild with the command above.
+Processed D1 (and H4) plus rates, VIX and the aligned market tables are
+committed. sha256 is in data/v7/SHA256SUMS.

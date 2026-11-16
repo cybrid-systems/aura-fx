@@ -1,0 +1,10 @@
+;; v7 paper monitor: select:drift? on the official 1x carry-eq-d1 ledger.
+;; Alarm only; frozen parameters are never changed and heal!/swap! are
+;; not invoked. Avoid cadddr (aura#5313).
+(require "lib/v7")
+(define mon (v7-monitor "paper/v7-ledger.csv"))
+(write-file "out/v7/monitor.json" (json-encode mon))
+(display "V7_MONITOR_OK alarm=") (display (hash-ref mon "alarm"))
+(display " days=") (display (hash-ref mon "days"))
+(display " reason=") (display (hash-ref mon "reason"))
+(newline)

@@ -1,0 +1,20 @@
+;; v7 paper: compute frozen carry-eq-d1 (and carry-vix-20-d1 control)
+;; target positions from the aligned D1 market. Run by scripts/v7-paper.sh
+;; after the freeze hashes check. Does not change frozen parameters.
+;; Avoid cadddr (aura#5313).
+(require "lib/v7")
+
+(define mkt (v7-load-market "data/v7"))
+(define pos (v7-positions mkt))
+(v7-write-positions "out/v7" mkt pos)
+(write-file "out/v7/decision.json"
+            (json-encode (hash "spec" "frozen-v7"
+                               "n" (hash-ref mkt "n")
+                               "first" (vector-ref (hash-ref mkt "days") 0)
+                               "last" (vector-ref (hash-ref mkt "days") (- (hash-ref mkt "n") 1))
+                               "primary" "carry-eq-d1"
+                               "control" "carry-vix-20-d1"
+                               "note" "positions decided at each D1 close; official booking starts flat on the first close on or after freeze-date")))
+(display "V7_DECISION_OK n=") (display (hash-ref mkt "n"))
+(display " last=") (display (vector-ref (hash-ref mkt "days") (- (hash-ref mkt "n") 1)))
+(newline)

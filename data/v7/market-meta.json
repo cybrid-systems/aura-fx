@@ -1,0 +1,44 @@
+{
+ "pairs": [
+  "EURNOK",
+  "EURSEK",
+  "USDHUF",
+  "EURHUF",
+  "NZDJPY",
+  "CADJPY",
+  "CHFJPY",
+  "EURNZD"
+ ],
+ "lot": 10000,
+ "slip": 0.2,
+ "markup": 1.0,
+ "unit_pip": [
+  0.00264,
+  0.0022800000000000003,
+  0.00262,
+  0.0032,
+  0.013499999999999998,
+  0.014499999999999999,
+  0.0165,
+  0.00022500000000000002
+ ],
+ "spreads": {
+  "CADJPY": 2.5,
+  "CHFJPY": 2.9,
+  "EURHUF": 63.6,
+  "EURNOK": 52.4,
+  "EURNZD": 4.1,
+  "EURSEK": 45.2,
+  "NZDJPY": 2.3,
+  "USDHUF": 52.0
+ },
+ "n": 995,
+ "from": "2023-01-02",
+ "to": "2026-10-30",
+ "freeze-date": "2026-11-16",
+ "asif-from": "2024-01-01",
+ "primary": "carry-eq-d1",
+ "control": "carry-vix-20-d1",
+ "now-utc": "2026-11-16T14:28:19Z",
+ "incomplete-dropped": true
+}

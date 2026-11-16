@@ -13,3 +13,5 @@ data/v6/*-smoke-*.csv
 data/v6/smoke-*.csv
 data/v6/smoke-*.json
 data/v6/*-fetch.log
+data/v7/*-h1.csv
+data/v7/*-fetch.log

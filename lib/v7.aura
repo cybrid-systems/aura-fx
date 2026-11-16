@@ -1,0 +1,211 @@
+;; v7: frozen equal-weight carry (and VIX-gated carry as a control) on a
+;; pre-aligned D1 market. Aura is the decision plane: it ranks the carry
+;; differentials and writes target positions. Parameters are frozen; the
+;; monitor may call select:drift? and would be allowed to call
+;; hot-strategy:heal! only as an alarm, never to change those parameters.
+;;
+;; Avoid cadddr: that binding is missing in aura 7167490e (aura#5313).
+(require "std/string" all:)
+(require "std/list" all:)
+(require "std/algo-select" all:)
+
+(define (v7-finite? x)
+  (if (number? x) (= x x) #f))
+
+(define (v7-split-lines s)
+  (filter (lambda (l) (> (string-length l) 0)) (string-split s "\n")))
+
+(define (v7-load-csv path)
+  (let ((rows (map (lambda (l) (string-split l ",")) (v7-split-lines (read-file path)))))
+    (if (null? rows) (error (string-append "v7: empty csv " path))
+      (cons (car rows) (cdr rows)))))
+
+(define (v7-parse-num s)
+  (if (if (string=? s "") #t (string=? s "nan"))
+    +nan.0
+    (exact->inexact (string->number s))))
+
+(define (v7-col-index header name)
+  (let loop ((hs header) (i 0))
+    (cond ((null? hs) (error (string-append "v7: missing column " name)))
+          ((string=? (car hs) name) i)
+          (else (loop (cdr hs) (+ i 1))))))
+
+(define (v7-nth row i)
+  (let loop ((xs row) (k 0))
+    (cond ((null? xs) (error "v7: row too short"))
+          ((= k i) (car xs))
+          (else (loop (cdr xs) (+ k 1))))))
+
+(define (v7-load-aligned path pairs)
+  (let* ((csv (v7-load-csv path))
+         (header (car csv))
+         (body (cdr csv))
+         (n (length body))
+         (m (length pairs))
+         (idx (map (lambda (p) (v7-col-index header p)) pairs))
+         (days (list->vector (map car body)))
+         (mat (make-vector m #f)))
+    (let init ((j 0))
+      (if (< j m) (begin (vector-set! mat j (make-vector n 0.0)) (init (+ j 1))) #t))
+    (let rowl ((rs body) (i 0))
+      (if (null? rs) #t
+        (begin
+          (let cl ((js idx) (j 0))
+            (if (null? js) #t
+              (begin (vector-set! (vector-ref mat j) i (v7-parse-num (v7-nth (car rs) (car js))))
+                     (cl (cdr js) (+ j 1)))))
+          (rowl (cdr rs) (+ i 1)))))
+    (hash "days" days "n" n "m" m "mat" mat)))
+
+(define (v7-load-market dir)
+  (let* ((meta (json-parse (read-file (string-append dir "/market-meta.json"))))
+         (pairs (hash-ref meta "pairs"))
+         (daycsv (v7-load-csv (string-append dir "/market-day.csv")))
+         (header (car daycsv))
+         (body (cdr daycsv))
+         (n (length body))
+         (di-vix (v7-col-index header "vix"))
+         (di-nights (v7-col-index header "nights"))
+         (days (list->vector (map car body)))
+         (vix (make-vector n 0.0))
+         (nights (make-vector n 0.0))
+         (closes (v7-load-aligned (string-append dir "/market-close.csv") pairs))
+         (diffs (v7-load-aligned (string-append dir "/market-diff.csv") pairs))
+         (convs (v7-load-aligned (string-append dir "/market-conv.csv") pairs)))
+    (if (= n (hash-ref closes "n")) #t (error "v7: close rows != day rows"))
+    (if (= n (hash-ref diffs "n")) #t (error "v7: diff rows != day rows"))
+    (if (= n (hash-ref convs "n")) #t (error "v7: conv rows != day rows"))
+    (let fill ((rs body) (i 0))
+      (if (null? rs) #t
+        (begin
+          (vector-set! vix i (v7-parse-num (v7-nth (car rs) di-vix)))
+          (vector-set! nights i (v7-parse-num (v7-nth (car rs) di-nights)))
+          (fill (cdr rs) (+ i 1)))))
+    (hash "meta" meta "pairs" (list->vector pairs) "days" days "n" n
+          "m" (length pairs) "vix" vix "nights" nights
+          "close" (hash-ref closes "mat") "diff" (hash-ref diffs "mat")
+          "conv" (hash-ref convs "mat"))))
+
+(define (v7-rank-pos sig)
+  (let* ((m (vector-length sig))
+         (p (make-vector m 0.0))
+         (idx (let loop ((j 0) (acc (list)))
+                (if (>= j m) (reverse acc)
+                  (loop (+ j 1)
+                        (if (v7-finite? (vector-ref sig j)) (cons j acc) acc))))))
+    (let ((n (length idx)))
+      (if (< n 2) p
+        (let* ((k (quotient n 2))
+               (ordered (sort idx (lambda (a b) (< (vector-ref sig a) (vector-ref sig b))))))
+          (let lo ((ys ordered) (i 0))
+            (if (>= i k) #t
+              (begin (vector-set! p (car ys) -1.0) (lo (cdr ys) (+ i 1)))))
+          (let hi ((ys (reverse ordered)) (i 0))
+            (if (>= i k) #t
+              (begin (vector-set! p (car ys) 1.0) (hi (cdr ys) (+ i 1)))))
+          p)))))
+
+(define (v7-sig-at d i)
+  (let* ((m (hash-ref d "m")) (sig (make-vector m 0.0)) (mat (hash-ref d "diff")))
+    (let loop ((j 0))
+      (if (>= j m) sig
+        (begin (vector-set! sig j (vector-ref (vector-ref mat j) i))
+               (loop (+ j 1)))))))
+
+(define (v7-zeros m) (make-vector m 0.0))
+
+(define (v7-copy-vec v)
+  (let* ((n (vector-length v)) (o (make-vector n 0.0)))
+    (let loop ((i 0))
+      (if (>= i n) o
+        (begin (vector-set! o i (vector-ref v i)) (loop (+ i 1)))))))
+
+(define (v7-positions d)
+  (let* ((n (hash-ref d "n")) (m (hash-ref d "m"))
+         (eq (make-vector n #f)) (vixc (make-vector n #f))
+         (vix (hash-ref d "vix")))
+    (let day ((i 0))
+      (if (>= i n)
+        (hash "carry-eq-d1" eq "carry-vix-20-d1" vixc)
+        (let ((p (if (< i 2) (v7-zeros m) (v7-rank-pos (v7-sig-at d i)))))
+          (vector-set! eq i p)
+          (vector-set! vixc i
+            (if (if (v7-finite? (vector-ref vix i)) (< (vector-ref vix i) 20.0) #f)
+              (v7-copy-vec p)
+              (v7-zeros m)))
+          (day (+ i 1)))))))
+
+(define (v7-write-csv path header rows)
+  (write-file path
+    (string-append
+      (string-join header ",")
+      "\n"
+      (string-join (map (lambda (r) (string-join r ",")) rows) "\n")
+      (if (null? rows) "" "\n"))))
+
+(define (v7-fmt x)
+  (let ((s (number->string x))) s))
+
+(define (v7-pos-row days pairs pos-eq pos-vix i)
+  (let* ((m (vector-length pairs))
+         (pe (vector-ref pos-eq i))
+         (pv (vector-ref pos-vix i)))
+    (let loop ((j 0) (acc (list (vector-ref days i))))
+      (if (>= j m)
+        (let loop2 ((k 0) (acc2 acc))
+          (if (>= k m) (reverse acc2)
+            (loop2 (+ k 1) (cons (v7-fmt (vector-ref pv k)) acc2))))
+        (loop (+ j 1) (cons (v7-fmt (vector-ref pe j)) acc))))))
+
+(define (v7-write-positions dir d pos)
+  (let* ((pairs (vector->list (hash-ref d "pairs")))
+         (days (hash-ref d "days"))
+         (n (hash-ref d "n"))
+         (eq (hash-ref pos "carry-eq-d1"))
+         (vx (hash-ref pos "carry-vix-20-d1"))
+         (header (append (list "day")
+                         (map (lambda (p) (string-append "carry-eq-d1|" p)) pairs)
+                         (map (lambda (p) (string-append "carry-vix-20-d1|" p)) pairs)))
+         (rows (let loop ((i 0) (acc (list)))
+                 (if (>= i n) (reverse acc)
+                   (loop (+ i 1) (cons (v7-pos-row days (list->vector pairs) eq vx i) acc))))))
+    (v7-write-csv (string-append dir "/positions.csv") header rows)))
+
+(define (v7-load-official-pnl path)
+  ;; paper/v7-ledger.csv; keep official costmult=1 carry-eq-d1 rows only.
+  ;; The paper script always writes at least a header before this is called.
+  (let* ((csv (v7-load-csv path))
+         (header (car csv))
+         (body (cdr csv))
+         (i-kind (v7-col-index header "kind"))
+         (i-cm (v7-col-index header "costmult"))
+         (i-cfg (v7-col-index header "config"))
+         (i-net (v7-col-index header "net")))
+    (let loop ((rs body) (acc (list)))
+      (if (null? rs) (reverse acc)
+        (let ((r (car rs)))
+          (if (if (string=? (v7-nth r i-kind) "official")
+                (if (string=? (v7-nth r i-cm) "1")
+                  (string=? (v7-nth r i-cfg) "carry-eq-d1")
+                  #f)
+                #f)
+            (loop (cdr rs) (cons (list (car r) (v7-parse-num (v7-nth r i-net))) acc))
+            (loop (cdr rs) acc)))))))
+
+(define (v7-monitor ledger-path)
+  (let ((rows (v7-load-official-pnl ledger-path))
+        (sel (select:make (hash "drift-threshold" 0.35))))
+    (if (null? rows)
+      (hash "alarm" #f "days" 0 "reason" "no official carry-eq-d1 1x rows yet")
+      (begin
+        (let loop ((rs rows) (i 0))
+          (if (null? rs) #t
+            (begin
+              (select:feedback! sel (hash "t" i) "carry-eq-d1" (cadr (car rs)))
+              (loop (cdr rs) (+ i 1)))))
+        (let ((alarm (select:drift? sel)))
+          (hash "alarm" alarm "days" (length rows)
+                "reason" (if alarm "select:drift? fired on official 1x carry-eq-d1; frozen parameters were not changed"
+                           "no drift alarm")
+                "action" "alert-only"))))))
