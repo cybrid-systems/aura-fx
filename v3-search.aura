@@ -1,0 +1,64 @@
+;; v3 search on the EUR/USD train range only (2019-2023). Anchored
+;; walk-forward inside train: search 2019..Y-1, validate on year Y for
+;; Y = 2021, 2022, 2023; then the same searches on all of 2019-2023
+;; ("full") give the configs the frozen file may take. Writes
+;; out/v3-search.json. Nothing here reads data after 2023-12-31.
+(require "lib/v3")
+(require "std/fs" all:)
+
+(define COST (hash "half" 0.000065 "lot" 10000))
+(define BUDGET 128)
+(define TFS (list "h4" "d1"))
+(define ALGOS (list "es" "nsga"))
+(define FOLDS (list (list "2021" "2021-01-01" "2022-01-01") (list "2022" "2022-01-01" "2023-01-01")
+                    (list "2023" "2023-01-01" "2024-01-01") (list "full" "2024-01-01" "2024-01-01")))
+
+(make-directory "out")
+(define t0 (monotonic-ms))
+(define SER (hash "h4" (v3-series "data/v3/eurusd-train-h4.csv" "USD")
+                  "d1" (v3-series "data/v3/eurusd-train-d1.csv" "USD")))
+(display "V3 loaded ms=") (display (- (monotonic-ms) t0)) (newline)
+
+(define (month-of s a k) ; month key of daily index k of a run starting at bar a
+  (substring (vector-ref (hash-ref s "days") (+ (vector-ref (hash-ref s "day-idx") a) k)) 0 7))
+
+(define (proc-name tf fam algo) (string-append tf "/" fam "/" algo))
+
+(define (run-proc tf fam algo fi)
+  (let* ((s (hash-ref SER tf)) (f (list-ref FOLDS fi))
+         (a 0) (b (v3-index s (cadr f))) (e (v3-index s (list-ref f 2)))
+         (seed (+ (* 1000 (+ fi 1)) (* 100 (length (member fam (reverse V3-FAMILIES)))) (if (string=? tf "h4") 10 20) (if (string=? algo "es") 1 2)))
+         (r (if (string=? algo "es") (v3-search-es s fam a b COST BUDGET seed) (v3-search-nsga s fam a b COST BUDGET seed)))
+         (best (hash-ref r "best"))
+         (val (if (> e b) (v3-eval s (hash-ref best "params") b e COST) #f))
+         (vd (if val (hash-ref val "daily") (list))))
+    (display "V3 ") (display (proc-name tf fam algo)) (display " fold=") (display (car f))
+    (display " is-sharpe=") (display (m-round (hash-ref best "sharpe") 2))
+    (display " is-sum=") (display (m-round (hash-ref best "sum") 1))
+    (display " fills/yr=") (display (m-round (hash-ref best "fills-per-year") 1))
+    (if val (begin (display " val-sum=") (display (m-round (hash-ref val "sum") 1))
+                   (display " val-sharpe=") (display (m-round (hash-ref val "sharpe") 2))) #f)
+    (newline)
+    (hash "proc" (proc-name tf fam algo) "tf" tf "fam" fam "algo" algo "fold" (car f)
+          "params" (hash-ref best "params") "genome" (hash-ref best "genome")
+          "is-sharpe" (hash-ref best "sharpe") "is-sr-daily" (hash-ref best "sr-daily") "is-sum" (hash-ref best "sum")
+          "is-fills-per-year" (hash-ref best "fills-per-year") "is-max-dd" (hash-ref best "max-dd")
+          "trial-srs" (map (lambda (x) (hash-ref x "sr-daily")) (hash-ref r "history"))
+          "trials" (length (hash-ref r "history"))
+          "val-daily" vd "val-months" (if val (map (lambda (k) (month-of s b k)) (range-list 0 (length vd))) (list))
+          "val-sum" (if val (hash-ref val "sum") 0.0) "val-fills-per-year" (if val (hash-ref val "fills-per-year") 0.0))))
+
+(define (range-list a b) (if (>= a b) (list) (cons a (range-list (+ a 1) b))))
+
+(define runs
+  (apply append
+    (map (lambda (tf) (apply append (map (lambda (fam) (apply append (map (lambda (algo)
+           (map (lambda (fi) (run-proc tf fam algo fi)) (range-list 0 (length FOLDS))))
+         ALGOS))) V3-FAMILIES)))
+         TFS)))
+
+(define (strip r) (hash-set (hash-set r "trial-srs" (length (hash-ref r "trial-srs"))) "val-daily" (length (hash-ref r "val-daily"))))
+(write-file "out/v3-runs-full.json" (json-encode runs))
+(display "V3 searches=") (display (length runs)) (display " trials=") (display (apply + (map (lambda (r) (hash-ref r "trials")) runs)))
+(display " ms=") (display (- (monotonic-ms) t0)) (newline)
+(display "V3_SEARCH_OK") (newline)
