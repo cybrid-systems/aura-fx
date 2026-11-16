@@ -1,0 +1,184 @@
+;; v5: online adaptation on precomputed columns.
+;;
+;; scripts/v5-prep.py writes, per pair, one daily net-P&L column per
+;; config (96 = 4 rebalancing frequencies x 24 signal rules) and the
+;; end-of-day position of each config. Aura is the control plane: every N
+;; trading days it scores all configs on the last W days (prefix sums, so
+;; one score is O(1)), picks a config (greedy / tune:gate / tune:race),
+;; installs it with hot-strategy:swap! on the workspace define
+;; active-config, and rolls back with hot-strategy:heal! when the new
+;; config has lost money since the switch while the previous one would
+;; have made more. A Page-Hinkley detector on the live P&L can force an
+;; early decision. Switching pays |pos_new - pos_old| x unit cost.
+(require "lib/metrics")
+(require "lib/drift")
+(require "std/string" all:)
+(require "std/list" all:)
+(require "std/hyper-heuristic" all:)
+(require "std/hot-strategy" all:)
+
+;; ── data ──
+(define (v5-load netfile posfile)
+  (let* ((lines (filter (lambda (l) (> (string-length l) 0)) (string-split (read-file netfile) "\n")))
+         (head (string-split (car lines) ","))
+         (names (cddr head))
+         (rows (map (lambda (l) (string-split l ",")) (cdr lines)))
+         (n (length rows)) (nc (length names))
+         (cols (make-vector nc #f))
+         (plines (filter (lambda (l) (> (string-length l) 0)) (string-split (read-file posfile) "\n")))
+         (prows (map (lambda (l) (cdr (string-split l ","))) (cdr plines)))
+         (pos (make-vector nc #f)))
+    (let fill ((k 0))
+      (if (< k nc)
+        (begin
+          (vector-set! cols k (make-vector n 0.0))
+          (vector-set! pos k (make-vector n 0))
+          (fill (+ k 1)))
+        #t))
+    (let rowl ((rs rows) (ps prows) (i 0))
+      (if (null? rs) #t
+        (begin
+          (let cl ((xs (cddr (car rs))) (k 0))
+            (if (null? xs) #t
+              (begin (vector-set! (vector-ref cols k) i (exact->inexact (string->number (car xs)))) (cl (cdr xs) (+ k 1)))))
+          (let pl ((xs (car ps)) (k 0))
+            (if (null? xs) #t
+              (begin (vector-set! (vector-ref pos k) i (string->number (car xs))) (pl (cdr xs) (+ k 1)))))
+          (rowl (cdr rs) (cdr ps) (+ i 1)))))
+    (let* ((s1 (make-vector nc #f)) (s2 (make-vector nc #f)))
+      (let pk ((k 0))
+        (if (< k nc)
+          (let ((a (make-vector (+ n 1) 0.0)) (b (make-vector (+ n 1) 0.0)) (c (vector-ref cols k)))
+            (let pi ((i 0))
+              (if (< i n)
+                (let ((x (vector-ref c i)))
+                  (vector-set! a (+ i 1) (+ (vector-ref a i) x))
+                  (vector-set! b (+ i 1) (+ (vector-ref b i) (* x x)))
+                  (pi (+ i 1)))
+                #t))
+            (vector-set! s1 k a) (vector-set! s2 k b)
+            (pk (+ k 1)))
+          #t))
+      (hash "days" (list->vector (map car rows)) "n" n "nc" nc "names" (list->vector names)
+            "unit" (list->vector (map (lambda (r) (exact->inexact (string->number (cadr r)))) rows))
+            "cols" cols "pos" pos "s1" s1 "s2" s2))))
+
+(define (v5-day-index d iso)
+  (let ((days (hash-ref d "days")) (n (hash-ref d "n")))
+    (let loop ((i 0)) (cond ((>= i n) n) ((string<? (vector-ref days i) iso) (loop (+ i 1))) (else i)))))
+
+;; config k's net P&L on day i; k = -1 is flat
+(define (v5-pnl d k i) (if (< k 0) 0.0 (vector-ref (vector-ref (hash-ref d "cols") k) i)))
+(define (v5-eod d k i) (if (< k 0) 0 (vector-ref (vector-ref (hash-ref d "pos") k) i)))
+(define (v5-sum d k a b)
+  (if (< k 0) 0.0 (let ((s (vector-ref (hash-ref d "s1") k))) (- (vector-ref s b) (vector-ref s a)))))
+;; window Sharpe of config k over days [a, b)
+(define (v5-wsharpe d k a b)
+  (if (< k 0) 0.0
+    (let* ((s1 (vector-ref (hash-ref d "s1") k)) (s2 (vector-ref (hash-ref d "s2") k))
+           (n (exact->inexact (- b a)))
+           (m (/ (- (vector-ref s1 b) (vector-ref s1 a)) n))
+           (v (- (/ (- (vector-ref s2 b) (vector-ref s2 a)) n) (* m m))))
+      (if (< v 1e-12) 0.0 (/ m (sqrt v))))))
+(define (v5-window d k a b)
+  (let loop ((i (- b 1)) (acc (list))) (if (< i a) acc (loop (- i 1) (cons (v5-pnl d k i) acc)))))
+
+;; ── workspace: the live config is the define active-config ──
+(define (v5-boot!)
+  (set-code "(define (active-config) -1)")
+  (eval-current)
+  (hot-strategy:register! "active-config" "(lambda () -1)"))
+(define (v5-live) (active-config))
+
+;; ranked candidates: list of (score . k), best first; flat is k = -1, score 0
+(define (v5-ranked d a b)
+  (let loop ((k 0) (acc (list (cons 0.0 -1))))
+    (if (>= k (hash-ref d "nc"))
+      (sort acc (lambda (x y) (> (car x) (car y))))
+      (loop (+ k 1) (cons (cons (v5-wsharpe d k a b) k) acc)))))
+
+;; method -> chosen config index
+(define (v5-choose method d active a b)
+  (let* ((ranked (v5-ranked d a b)) (top (cdr (car ranked))))
+    (cond
+      ((string=? method "greedy") top)
+      ((string=? method "gate")
+       (if (= top active) active
+         (let ((g (tune:gate (v5-window d top a b) (v5-window d active a b) (hash "alpha" 0.05 "sense" "max"))))
+           (if (hash-ref g "keep") top active))))
+      (else
+       ;; race: the 8 best by window Sharpe plus the live config and flat;
+       ;; instances are 5-day blocks of the window (newest last)
+       (let* ((cands (v5-dedup (append (map cdr (v4x-take ranked 8)) (list active -1))))
+              (blocks (let bl ((s a) (acc (list))) (if (> (+ s 5) b) (reverse acc) (bl (+ s 5) (cons s acc)))))
+              (r (tune:race (map (lambda (k) (hash "name" (number->string k) "k" k)) cands)
+                            (hash "instances" blocks "seeds" (list 1) "alpha" 0.05 "min-instances" 4
+                                  "evaluate" (lambda (cfg s seed) (/ (v5-sum d (hash-ref cfg "k") s (+ s 5)) 5.0))))))
+         (let ((w (hash-ref r "winner"))) (if w (string->number w) active)))))))
+(define (v4x-take xs n) (let loop ((ys xs) (k n) (acc (list))) (if (if (null? ys) #t (<= k 0)) (reverse acc) (loop (cdr ys) (- k 1) (cons (car ys) acc)))))
+(define (v5-dedup xs) (let loop ((ys xs) (acc (list))) (if (null? ys) (reverse acc) (loop (cdr ys) (if (member (car ys) acc) acc (cons (car ys) acc))))))
+
+;; ── one adaptive run ──
+;; opts: N (decision period, days), W (window, days), method,
+;; ph-delta / ph-lambda (on P&L in units of the live config's window sd).
+;; Decisions start at day index a (needs a >= W); P&L is booked on [a, b).
+(define (v5-run d opts a b)
+  (let* ((N (hash-ref opts "N")) (W (hash-ref opts "W")) (method (hash-ref opts "method"))
+         (active -1) (last-good -1) (since a) (next a)
+         (ph (ph-make (hash-ref opts "ph-delta" 0.5) (hash-ref opts "ph-lambda" 4.0)))
+         (daily (list)) (switches 0) (heals 0) (swap-fail 0) (alarms 0) (decisions 0)
+         (dec-ms (list)) (swap-ms (list)) (switch-cost 0.0) (timeline (list)))
+    ;; every run starts flat, whatever an earlier run left live
+    (hot-strategy:swap! "active-config" "(lambda () -1)" "v5 run start")
+    (if (= (v5-live) -1) #t (error "v5-run: could not reset active-config"))
+    (let day ((i a))
+      (if (>= i b)
+        (hash "daily" (reverse daily) "switches" switches "heals" heals "swap-fail" swap-fail
+              "alarms" alarms "decisions" decisions "dec-ms" (reverse dec-ms) "swap-ms" (reverse swap-ms)
+              "switch-cost" switch-cost "timeline" (reverse timeline) "final" active)
+        (begin
+          (if (>= i next)
+            (let* ((t0 (monotonic-ms))
+                   ;; heal: the config switched in at `since` lost money, and the
+                   ;; previous one would have made more over the same days
+                   (heal? (if (> i since)
+                            (if (< (v5-sum d active since i) 0.0) (> (v5-sum d last-good since i) (v5-sum d active since i)) #f)
+                            #f))
+                   (choice (if heal? last-good (v5-choose method d active (- i W) i))))
+              (set! decisions (+ decisions 1))
+              (if (= choice active) #t
+                (let* ((t1 (monotonic-ms))
+                       (ok (if heal?
+                             (hot-strategy:heal! "active-config")
+                             (car (hot-strategy:swap! "active-config" (string-append "(lambda () " (number->string choice) ")") "v5 switch"))))
+                       (live (v5-live)))
+                  (set! swap-ms (cons (- (monotonic-ms) t1) swap-ms))
+                  (if (if ok (= live choice) #f)
+                    (begin
+                      (set! switch-cost (+ switch-cost (* (abs (- (v5-eod d choice (- i 1)) (v5-eod d active (- i 1)))) (vector-ref (hash-ref d "unit") i))))
+                      (set! daily (cons (- 0.0 (* (abs (- (v5-eod d choice (- i 1)) (v5-eod d active (- i 1)))) (vector-ref (hash-ref d "unit") i))) daily))
+                      (if heal? (set! heals (+ heals 1)) (set! switches (+ switches 1)))
+                      (set! timeline (cons (list i choice (if heal? "heal" "swap")) timeline))
+                      (if heal? #t (set! last-good active))
+                      (set! active choice) (set! since i)
+                      (set! ph (ph-make (hash-ref opts "ph-delta" 0.5) (hash-ref opts "ph-lambda" 4.0))))
+                    (begin (set! swap-fail (+ swap-fail 1)) (if (getenv "V5_DBG") (begin (display (list "swapfail" i choice active ok live heal?)) (newline)) #f)
+                           ;; keep whatever is live
+                           (set! active live)))))
+              (set! next (+ i N))
+              (set! dec-ms (cons (- (monotonic-ms) t0) dec-ms)))
+            #t)
+          ;; book day i with the live config (switch cost already booked above
+          ;; as a separate entry; merge it into day i)
+          (let* ((x (v5-pnl d active i))
+                 (merged (if (if (pair? daily) (= (length daily) (+ (- i a) 1)) #f)
+                           (let ((c (car daily))) (set! daily (cdr daily)) (+ x c))
+                           x)))
+            (set! daily (cons merged daily))
+            (if (< active 0) #t
+              (let* ((sd (sqrt (max 1e-9 (- (/ (- (vector-ref (vector-ref (hash-ref d "s2") active) i) (vector-ref (vector-ref (hash-ref d "s2") active) (- i W))) W)
+                                           (let ((m (/ (v5-sum d active (- i W) i) W))) (* m m))))))
+                     (r (ph-step ph (/ x sd))))
+                (set! ph (cdr r))
+                (if (car r) (begin (set! alarms (+ alarms 1)) (set! next (min next (+ i 1)))) #t))))
+          (day (+ i 1)))))))

@@ -1,0 +1,45 @@
+;; v5 train search: every adaptive variant on both train pairs.
+;; VARIANTS (env) = comma-separated variant indices into V5-VARIANTS.
+;; Decisions start 2019-07-01 (the first W days are history only) and run
+;; to the end of 2023. Writes out/v5/run-<idx>.json per variant.
+(require "lib/v5")
+(require "std/fs" all:)
+
+(define V5-VARIANTS
+  (apply append (map (lambda (N) (apply append (map (lambda (W) (map (lambda (m) (hash "N" N "W" W "method" m))
+                                                                    (list "greedy" "gate" "race")))
+                                                    (list 20 60 120))))
+                     (list 1 5 20))))
+(define PAIRS (list (list "EUR/USD" "data/v5/train-eurusd-net.csv" "data/v5/train-eurusd-pos.csv")
+                    (list "GBP/USD" "data/v5/train-gbpusd-net.csv" "data/v5/train-gbpusd-pos.csv")))
+(define START "2019-07-01")
+
+(v5-boot!)
+(define data (map (lambda (p) (v5-load (cadr p) (caddr p))) PAIRS))
+(define idxs (map string->number (string-split (getenv "VARIANTS") ",")))
+(for-each
+  (lambda (vi)
+    (let* ((opts (list-ref V5-VARIANTS vi)) (t0 (monotonic-ms))
+           (runs (map (lambda (d) (v5-run d opts (v5-day-index d START) (hash-ref d "n"))) data))
+           (d0 (car data)) (a (v5-day-index d0 START)))
+      (write-file (string-append "out/v5/run-" (number->string vi) ".json")
+        (json-encode
+          (hash "variant" vi "N" (hash-ref opts "N") "W" (hash-ref opts "W") "method" (hash-ref opts "method")
+                "days" (let loop ((i (- (hash-ref d0 "n") 1)) (acc (list))) (if (< i a) acc (loop (- i 1) (cons (vector-ref (hash-ref d0 "days") i) acc))))
+                "pairs" (map (lambda (p r)
+                               (hash "pair" (car p) "daily" (map (lambda (x) (m-round x 2)) (hash-ref r "daily"))
+                                     "switches" (hash-ref r "switches") "heals" (hash-ref r "heals") "swap-fail" (hash-ref r "swap-fail")
+                                     "alarms" (hash-ref r "alarms") "decisions" (hash-ref r "decisions")
+                                     "dec-ms" (hash-ref r "dec-ms") "swap-ms" (hash-ref r "swap-ms")
+                                     "switch-cost" (m-round (hash-ref r "switch-cost") 2) "timeline" (hash-ref r "timeline")))
+                             PAIRS runs)
+                "ms" (- (monotonic-ms) t0))))
+      (display "V5 variant ") (display vi) (display " ") (display (hash-ref opts "method"))
+      (display " N=") (display (hash-ref opts "N")) (display " W=") (display (hash-ref opts "W"))
+      (display " sums=") (display (map (lambda (r) (m-round (m-sum (hash-ref r "daily")) 1)) runs))
+      (display " switches=") (display (map (lambda (r) (hash-ref r "switches")) runs))
+      (display " heals=") (display (map (lambda (r) (hash-ref r "heals")) runs))
+      (display " fails=") (display (map (lambda (r) (hash-ref r "swap-fail")) runs))
+      (display " ms=") (display (- (monotonic-ms) t0)) (newline)))
+  idxs)
+(display "V5_RUN_OK") (newline)
