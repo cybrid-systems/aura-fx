@@ -1,6 +1,6 @@
 # aura-fx
 
-Aura 决定下不下单，ForexConnect 负责把单子送到 FXCM Demo。本仓库平时用 Aura nightly。这一版用的是自编 main `be7bc1196`，因为需要的修复还没出 nightly，见「安装」。
+Aura 决定下不下单，ForexConnect 负责把单子送到 FXCM Demo。本仓库平时用 Aura nightly。这一版用的是自编 main `4f2e40838`，因为需要的修复还没出 nightly，见「安装」。
 
 决策在 Aura 里：三套规则放进 `std/portfolio`，`std/algo-select` 的 kNN 按最近 16 根的斜率和来回次数选一套。换规则走 `std/hot-strategy`，进程不重启。经纪商接口是 Python。两边用同一份成交规则对账，对不上就说明管道没通。
 
@@ -15,9 +15,9 @@ curl -fsSL https://raw.githubusercontent.com/cybrid-systems/aura/main/install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-本机测过的二进制是自编的 Aura main `be7bc1196`（`aura dev (be7bc11960e7668289d112784aff2f974ab42406)`），还没有对应的 nightly。`scripts/*.sh` 优先用 PATH 上的 `aura`，找不到才用 `~/.local/bin`。
+本机测过的二进制是自编的 Aura main `4f2e40838`（`aura dev (4f2e408384cbb0960408eed023954e0418e0b39b)`），还没有对应的 nightly。`scripts/*.sh` 优先用 PATH 上的 `aura`，找不到才用 `~/.local/bin`。
 
-所需最低版本：main `3f994c2c3`（aura#5303 的修复，rebind 类型门不再误拒「条件里比较参数、分支返回该参数」的提案）。还要包含以下修复：
+所需最低版本：main `3f994c2c3`（aura#5303 的修复，rebind 类型门不再误拒「条件里比较参数、分支返回该参数」的提案）。建议用 `284f6b9e2` 及以后（aura#5304：循环里调用函数快了约 20 倍，冻结验证 v2 和 P1/P3 跑得更快）。还要包含以下修复：
 - `4f7ad2c29`（#5302）
 - `c2cf0b0a5`（#5301）
 - `4062afdd2`（#5294）
@@ -48,9 +48,10 @@ Demo 登录不在这个脚本里。账号放在 `.env`（从 `.env.example` 复�
 
 forexconnect 只有 cp35–cp37 的 manylinux x86_64 轮子，要用 Python 3.7（例如 conda-forge 的 `python=3.7`），再装 `forexconnect "numpy<1.22" "pandas<1.4"`。`FXCM_URL` 必须是 `https://www.fxcorporate.com/Hosts.jsp`：走 http 时 Hosts.jsp 返回 500，登录报 ORA-499。
 
-冻结验证（见「冻结验证 frozen-v1」）：
+冻结验证（见「冻结验证 frozen-v1」和「冻结验证 v2」）：
 
 ```sh
+bash scripts/frozen2.sh    # v2：真实小时线，先校验 frozen/v2.sha256，最后一行 FZ2_OK（约 40 分钟）
 bash scripts/frozen.sh     # 先校验 frozen/v1.sha256；缺 ECB 数据时用 scripts/fetch-ecb.py 下载；最后一行 FZ_OK
 ```
 
@@ -455,6 +456,118 @@ P3 的 aura#5302 修好了，但 NSGA-II 没快起来。单独测每代 16 个�
 
 结论：在合成磁带上，逐根选择器在新种子上合并过了门禁，但只在部分种子上有用。真实 EUR/USD 日线上不通过。不能把它当成可用的交易优势。
 
+## 这一版：自编 main `4f2e40838`
+
+aura#5304、#5305、#5306 都已关闭，仍没有新的 nightly（最新的还是 11 月 4 日那版），所以照旧在 aura-ci:v0.1.1 的 chroot 里编译 main `4f2e40838`，release 预设加 `bundle.sh`。`be7bc1196` 留着做对照。
+
+编译：
+- 8 核，开始时可用内存 4.5 GB，用了 `-j5`。
+- 298 个目标全部重编，用了 6 分 3 秒，user 21.2 分钟。
+- 编译期间可用内存最低 3.75 GB。但常驻的外部进程在这段时间里自己在 4.5–13 GB 之间来回变，所以编译本身的内存峰值这次没量准。按上次 `-j4` 约 2.4 GB 推算，大约 3 GB。
+
+测试：
+- `build.py test smoke` 5/5。
+- `build.py test suite` 第一次 283/291，6 个失败。其中 5 个是 chroot 的 `/tmp` 里留着上次以别的用户身份写的同名文件，`fs.protected_regular` 拒绝覆盖（EACCES）；另 1 个是 `stdlib.aura`，单独跑能过。删掉残留文件后重跑整套：289/291（跳过 2 个），没有失败。
+
+### 三个修复的复现（`be7bc1196` → `4f2e40838`）
+
+| 问题 | `be7bc1196` | `4f2e40838` |
+|---|---|---|
+| aura#5304：循环里调用顶层函数，串行 / 8 fiber | 5500 / 1831 ms（3.0×） | 226 / 32 ms（7.1×） |
+| aura#5304：循环里读全局 vector | 5084 / 1534 ms（3.3×） | 227 / 38 ms（6.0×） |
+| aura#5304：`modulo` 循环，主线程串行 / 8 fiber | 2578 / 39 ms | 298 / 49 ms（6.1×） |
+| aura#5305：Restricted 下 `trie-insert`；`capability_5195` | effect-denied；失败 | 正常；通过 |
+| aura#5306：经两条路径重复 require std/string | 误报 string-join 被 lib/m 覆盖 | 不再报 |
+
+### P3：NSGA-II 并行还是 1.47 倍
+
+`4f2e40838` 上 `evolve.sh` 全部通过（`EVOLVE_OK`）。NSGA-II 串行 13.4 s，8 fiber 9.1 s，加速比只有 **1.47 倍**，没有超过 1.4 倍多少。
+
+拆开看，原因是读磁带：规则闭包每次调用要做 5–10 次 `hash-ref`（`(vector-ref (hash-ref tape "px") i)` 之类），一次调用约 50 µs。64000 次调用串行 3244 ms，8 fiber 2981 ms，几乎不随 fiber 数加快。单测循环里对共享 hash 做 `hash-ref`：每步 2.4–4.8 µs，8 fiber 只快 1.8–2.9 倍；取出的是 vector 时，还比 `be7bc1196` 慢约 44%。已建 aura#5307。
+
+P5 这次：LLM 提案 12/12 进入回测，没有被拒的，1 个不可行，KEEP 0。
+
+## 冻结验证 v2：真实 EUR/USD 小时线（frozen-v2）
+
+v1 的真实数据只有 ECB 日线，而且点差和手数沿用的是夹具的假设。v2 改用多年的小时线，按零售账户的真实成本计算，并且先冻结、再在留出段上只跑一次。
+
+**数据**：
+- 来源是 Dukascopy 公开 datafeed（`datafeed.dukascopy.com/datafeed/EURUSD/{年}/{月-1}/{BID|ASK}_candles_hour_1.bi5`），不需要登录，用 `scripts/fetch-dukascopy.py` 下载。
+- 区间是 2019-01 至 2026-10 的整月。每小时取 bid 收盘和 ask 收盘的中间价；成交量为 0 的小时（休市）去掉。
+- 共 48840 根，存在 `data/dukascopy-eurusd-h1.csv`，sha256 为 `60330c30…3d86ecc`。
+
+**成本**：
+- 点差：FXCM Standard 账户只收点差，不收佣金。2026 年第三方实测的 EUR/USD 平均点差为：
+  - 0.87 点（compareforexbrokers，2026 年 10 月）；
+  - 1.08 点（brokersprofile，FCA 实盘账户，2026 年 4–5 月）；
+  - 1.2 点（brokeranalysis）；
+  - 1.30 点（fxlists）。
+- 这里取偏保守的 **1.3 点**：每笔成交在中间价上付半个点差，即 0.000065。
+- 手数：每笔 **10,000 欧元**（FXCM 一个 mini lot），盈亏以美元计。
+- 作参考：Dukascopy 自己的小时收盘 bid/ask 价差，在训练段的中位数是 0.3 点、均值 0.52 点。这是银行间 ECN 水平，零售标准账户比这宽得多。
+
+**切分**：
+- 训练段 2019-01-01 至 2023-12-31：97 条磁带，679 个窗口。
+- 留出段 2024-01-01 至 2026-10-31：55 条磁带，385 个窗口。
+- 每条磁带是连续的 320 根小时线，不跨越切分点。窗口 0 用作预热，窗口 1–7（每个 40 小时）参与计算。
+
+**候选与参数**：沿用 v1 冻结的 9 个成员和逐根选择器的 5 个噪声定义（bar-alpha 0.10，门禁 α=0.05），以及换段检测器的参数（cut 0.3，k 8，horizon 40）。v2 没有新增或调整任何候选。
+
+**换段的事后标注**（冻结前写定）：
+- 每个 40 根的段，整段效率比 < 0.3 记为 noise，否则按净涨跌记为 up / down。
+- 相邻两段标注不同，就算一次换段。
+- 另外算「同样报警频率的随机报警」能得到的命中率和误报比例，作为对照。
+
+**冻结提交**：`51640bd98692f6dae04a1850905e5b24d1934e58`（北京时间 2026-11-16 08:16 推送到 `cursor/aura-fx-frozen-v2`）。`frozen/v2.json` 的 sha256 为 `509ff23ce1af94159719749db0983ed1c87bd9c30f5cff9e1b7b6a9b1e85adda`；代码和数据的 sha256 记在 `frozen/v2.sha256`。冻结前只看过行数和训练段的点差。提交之后跑了一次 `scripts/frozen2.sh`（sha 校验全部通过，用时 40 分钟，`FZ2_OK`），没有重跑，也没有改动任何东西。
+
+### 结果（只跑一次，原样记录）
+
+单条最佳规则（SBS）是训练段唯一赚钱的 revert-16，训练段 +480.3 美元。
+
+| 规则 | 训练段 2019–2023 | 留出段 2024-01 至 2026-10 |
+|---|---:|---:|
+| revert-16（SBS） | +480.30 | **-877.35** |
+| revert-8 | -1153.30 | -1346.35 |
+| eff-0.5 | -1731.85 | -1488.85 |
+| donchian-20 | -2615.15 | -1631.00 |
+| meanrev | -2422.55 | -2420.95 |
+| breakout | -6184.40 | -2457.90 |
+| momo-20 | -5025.80 | -2633.45 |
+| trend | -11053.25 | -4510.85 |
+| flat（不交易） | 0 | 0 |
+
+| 选择器（留出段） | 合计 | 对 SBS 的 t | 过门禁 |
+|---|---:|---:|:-:|
+| SBS（revert-16） | -877.35 | — | |
+| 逐根选择器（`er<0.5`，三格都选了 revert-16） | -877.35 | 0.00 | 否 |
+| 窗口级选择器 | -463.50 | 0.82 | 否 |
+| 事后 oracle（每窗口挑最好的成员） | 18826.00 | — | — |
+
+逐段（留出段，美元）：
+
+| 区间 | 窗口 | SBS = 逐根选择器 | 窗口级选择器 |
+|---|---:|---:|---:|
+| 2024 上半年 | 68 | -1.60 | +59.80 |
+| 2024 下半年 | 69 | +218.60 | +252.70 |
+| 2025 上半年 | 67 | -733.60 | -379.75 |
+| 2025 下半年 | 69 | +34.85 | +119.25 |
+| 2026-01 至 10 | 112 | -395.60 | -515.50 |
+
+换段检测（事后标注作为真值）：
+
+| | 换段 | 命中 | 命中率 | 报警 | 误报 | 误报比例 | 每千根报警 | 随机报警命中率 | 随机报警误报比例 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 留出段 | 129 | 113 | 0.88 | 394 | 232 | 0.59 | 25.6 | 0.65 | 0.66 |
+| 训练段 | 209 | 169 | 0.81 | 682 | 453 | 0.66 | 25.1 | 0.64 | 0.69 |
+
+**结论（不通过）**：
+- 在 1.3 点的零售点差下，8 个会交易的规则在留出段上**全部亏钱**。训练段唯一赚钱的 revert-16，到留出段亏了 877 美元，2.8 年里最好的选择是不交易。
+- 逐根选择器在训练段上没有找到能过门禁的切换，三格都留在 revert-16，结果和 SBS 完全一样（t=0）。
+- 窗口级选择器少亏了一些（-463.5），但 t=0.82，没有过门禁，而且 2026 年比 SBS 更差。
+- 事后 oracle 有 1.9 万美元，说明成员之间差异很大，但按行情特征事先挑不出来。
+- 换段检测器的命中率（0.88）比同样频率的随机报警（0.65）高，误报比例（0.59）也比随机（0.66）略低，说明它确实带一点信息。但每千根要报警约 26 次，六成是误报，不能单独拿来当交易触发条件。
+- 这次的规则池和阈值都是在合成磁带上设计的，没有为真实小时线重新设计（重新设计就需要 v3 和一段新的留出数据）。
+
 ## 布局
 
 | 路径 | 作用 |
@@ -480,6 +593,9 @@ P3 的 aura#5302 修好了，但 NSGA-II 没快起来。单独测每代 16 个�
 | `frozen/v1.json` / `frozen/v1.sha256` | 冻结验证的全部参数与依赖代码哈希 |
 | `lib/frozen.aura` / `frozen-eval.aura` / `scripts/frozen.sh` | 冻结验证：新种子 + ECB，最后打印 `FZ_OK` |
 | `scripts/fetch-ecb.py` / `data/ecb-eurusd.csv` | 下载 ECB 参考汇率 USD 列 |
+| `frozen/v2.json` / `frozen/v2.sha256` | 冻结验证 v2：真实小时线的切分、成本、参数与依赖哈希 |
+| `lib/frozen2.aura` / `frozen-eval2.aura` / `scripts/frozen2.sh` | 冻结验证 v2，最后打印 `FZ2_OK` |
+| `scripts/fetch-dukascopy.py` / `data/dukascopy-eurusd-h1.csv` | 下载 Dukascopy EUR/USD 小时线（bid/ask） |
 | `bridge/fc_adapter.py` | probe、login、paper、live（含 --offline / --dry-run），自带风控检查 |
 
 订单字段对齐 ForexConnect 的 `create_order_request`：`order_type=OM`（`TRUE_MARKET_OPEN`）、`buy_sell` 为 `B` 或 `S`、`amount` 已经是基础货币单位。live 路径按品种在 OFFERS 里找报价（`Common.get_offer` 会跳过订阅状态不是 `T` 的报价），不会再乘一次 `base_unit_size`。
