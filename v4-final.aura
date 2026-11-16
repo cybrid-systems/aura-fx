@@ -1,0 +1,79 @@
+;; Final test of frozen-v4, run once by scripts/v4-final.sh after the
+;; freeze commit. Applies the frozen rules unchanged to each new pair
+;; from test-from to the end of the data (2023 is indicator warm-up only),
+;; with that pair's frozen spread, rollover from the BIS policy rates
+;; (previous month) minus the frozen markup, a 10,000-unit lot and pnl in
+;; USD. Reports per pair, pooled (one lot per pair, summed per day), per
+;; period, t of daily pnl against flat, deflated by the frozen trial
+;; counts, and the same at twice the spread and without rollover. The
+;; already-seen pairs (EUR/USD, GBP/USD, USD/JPY, AUD/USD) are a reference
+;; only. Writes out/v4-final.json.
+(require "lib/v4")
+(require "std/fs" all:)
+
+(define spec (json-parse (read-file "frozen/v4.json")))
+(define from (hash-ref spec "test-from"))
+(define periods (hash-ref spec "periods"))
+(define tr (hash-ref spec "trials"))
+
+(define (load-set key)
+  (map (lambda (p) (v4-load-pair (hash "name" (hash-ref p "name") "file" (hash-ref p "file")
+                                       "half" (* 0.5 (hash-ref p "spread-pips") (hash-ref p "pip")))))
+       (hash-ref spec key)))
+(define news (load-set "pairs"))
+(define refs (load-set "reference"))
+
+(define (with-half p mult) (hash-set p "half" (* mult (hash-ref p "half"))))
+(define (no-carry p) (let ((z (make-list (hash-ref p "n") 0.0))) (hash-set (hash-set p "k" z) "m" z)))
+
+(define (deflate daily n var)
+  (let* ((sr (m-sharpe daily)) (sr0 (m-sr0 n var)) (t (length daily))
+         (g3 (m-skew daily)) (g4 (m-kurt daily))
+         (den2 (+ (- 1.0 (* g3 sr)) (* (/ (- g4 1.0) 4.0) sr sr)))
+         (den (sqrt (if (< den2 1e-9) 1e-9 den2)))
+         (z (if (< t 2) 0.0 (/ (* (- sr sr0) (sqrt (- t 1))) den))))
+    (list "sr-daily" (m-round sr 4) "sr0" (m-round sr0 4) "deflated" (m-round (- sr sr0) 4) "dsr" (m-round (m-phi z) 3) "n" n)))
+(define (t-flat daily) (m-round (hash-ref (tune:gate daily (map (lambda (x) 0.0) daily) (hash "alpha" 0.05 "sense" "max")) "t") 2))
+
+(define (period-rows days daily)
+  (let loop ((bs periods) (acc (list)))
+    (if (null? (cdr bs)) (reverse acc)
+      (let* ((lo (car bs)) (hi (cadr bs))
+             (xs (let l ((ds days) (ps daily) (out (list)))
+                   (if (null? ds) (reverse out)
+                     (l (cdr ds) (cdr ps) (if (and (not (string<? (car ds) lo)) (string<? (car ds) hi)) (cons (car ps) out) out))))))
+        (loop (cdr bs) (cons (list lo (m-round (m-sum xs) 1) (length xs)) acc))))))
+
+(define (report name ds rule)
+  (let* ((p0 (car ds)) (a (v4-day-index p0 from)) (n (hash-ref p0 "n"))
+         (e (if rule (v4-eval ds rule a n) #f))
+         (daily (if e (hash-ref e "daily") (make-list (- n a) 0.0)))
+         (days (v4-slice (hash-ref p0 "days") a n)))
+    (list name "sum" (m-round (m-sum daily) 2) "sharpe-ann" (m-round (* V4-ANN (m-sharpe daily)) 2)
+          "t-vs-flat" (t-flat daily) "max-dd" (m-round (v4-max-dd daily) 2)
+          "fills/yr" (if e (m-round (hash-ref e "fills-yr") 1) 0.0) "days" (length daily)
+          "range" (list (car days) (car (reverse days)))
+          "deflated-all-candidates" (deflate daily (hash-ref tr "candidates") (hash-ref tr "candidate-sr-var"))
+          "deflated-arms" (deflate daily (hash-ref tr "arms") (hash-ref tr "arm-sr-var"))
+          "periods" (period-rows days daily))))
+
+(define (run-set ds rule label)
+  (append (map (lambda (p) (report (hash-ref p "name") (list p) rule)) ds)
+          (list (report label ds rule))))
+
+(define (run-cfg cfg)
+  (let* ((txt (hash-ref cfg "rule")) (rule (if (string=? txt "flat") #f (read-from-string txt))))
+    (hash "name" (hash-ref cfg "name") "rule" txt
+          "x1" (run-set news rule "pooled-new-pairs")
+          "x2" (run-set (map (lambda (p) (with-half p 2.0)) news) rule "pooled-new-pairs")
+          "no-rollover" (run-set (map no-carry news) rule "pooled-new-pairs")
+          "reference-seen" (run-set refs rule "pooled-seen-pairs"))))
+
+(define results (map run-cfg (hash-ref spec "configs")))
+(write-file "out/v4-final.json" (json-encode (hash "spec" (hash-ref spec "version") "results" results)))
+(for-each (lambda (r)
+            (display "V4F cfg ") (display (hash-ref r "name")) (display " ") (display (hash-ref r "rule")) (newline)
+            (for-each (lambda (k) (for-each (lambda (x) (display "V4F ") (display k) (display " ") (display x) (newline)) (hash-ref r k)))
+                      (list "x1" "x2" "no-rollover" "reference-seen")))
+          results)
+(display "V4_FINAL_OK") (newline)

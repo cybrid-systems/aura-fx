@@ -1,0 +1,390 @@
+;; v4: rule DSL + genetic programming + LLM proposals on D1 bars.
+;;
+;; A rule is a datum (rule EXPR TIN TOUT HOLD). EXPR is a score built from
+;; feature terminals (columns of scripts/v4-prep.py, all computed from
+;; closes <= the bar) and operators:
+;;   terminals  (zret L) L 5 10 20 60 120 | (zsma L) 10 20 50 100 200
+;;              (dpos N) 10 20 55 120 | (usd L) 5 20 60 | (up L) 10 20 60
+;;              (vr) (carry) (r1) | numeric constants
+;;   operators  (+ a b) (- a b) (* a b) (/ a b) (min a b) (max a b)
+;;              (neg a) (abs a) (sgn a) (clip a) (ifgt a b c d)
+;; Position (lots, -1/0/1) from the score s at each close: flat -> long
+;; if s > TIN, short if s < -TIN; long -> short if s < -TIN, flat if
+;; s < TOUT (short mirrored); a position change needs HOLD days since the
+;; last change (entries from flat do not wait).
+;;
+;; Two evaluators: v4-eval works on whole columns (lists; the search
+;; path), v4-render turns the same datum into Aura code
+;; (lambda (i) ...) that the gate rebinds as rule-score in an evo:trial
+;; child worldline and runs bar by bar. The gate requires both to agree.
+;;
+;; Costs: half the pair's spread on every unit traded, rollover each
+;; night held = policy-rate differential (BIS, previous month) minus a
+;; V4-MARKUP % p.a. broker markup on the notional, 3 nights on Wednesday.
+;; pnl in USD, 10,000 base units per lot, the same rule on every pair.
+
+(require "lib/metrics")
+(require "std/string" all:)
+(require "std/list" all:)
+(require "std/search" all:)
+(require "std/pareto" all:)
+(require "std/evo-core" all:)
+(require "std/hyper-heuristic" all:)
+(require "std/hot-strategy" all:)
+(require "std/proposer" all:)
+(require "std/qd" all:)
+
+(define V4-LOT 10000.0)
+(define V4-MARKUP 1.0)
+(define V4-ANN (sqrt 252.0))
+(define V4-MAX-NODES 25)
+(define V4-MAX-DEPTH 6)
+(define V4-FILLS-MIN 2.0)
+(define V4-FILLS-MAX 30.0)
+(define V4-MAX-DD 4000.0)
+
+(define (v4-abs x) (if (< x 0) (- x) x))
+(define (v4-sgn x) (cond ((> x 0) 1.0) ((< x 0) -1.0) (else 0.0)))
+(define (v4-clip x) (cond ((> x 3.0) 3.0) ((< x -3.0) -3.0) (else x)))
+(define (v4-pdiv a b) (if (< (v4-abs b) 1e-9) 0.0 (v4-clip (/ a b))))
+(define (v4-range a b) (let loop ((k (- b 1)) (acc (list))) (if (< k a) acc (loop (- k 1) (cons k acc)))))
+
+;; ── data ──
+(define V4-FEATS
+  (list (list "zret" 5 10 20 60 120) (list "zsma" 10 20 50 100 200) (list "dpos" 10 20 55 120)
+        (list "usd" 5 20 60) (list "up" 10 20 60) (list "vr") (list "carry") (list "r1")))
+
+(define (v4-col-names)
+  (apply append (map (lambda (f) (if (null? (cdr f)) (list (car f))
+                                   (map (lambda (l) (string-append (car f) (number->string l))) (cdr f))))
+                     V4-FEATS)))
+
+;; pair: hash name, half (price), file. Returns the pair's data.
+(define (v4-load-pair p)
+  (let* ((lines (filter (lambda (l) (> (string-length l) 0)) (string-split (read-file (hash-ref p "file")) "\n")))
+         (head (string-split (car lines) ","))
+         (rows (map (lambda (l) (string-split l ",")) (cdr lines)))
+         (col (lambda (name)
+                (let ((k (let loop ((hs head) (k 0)) (cond ((null? hs) -1) ((string=? (car hs) name) k) (else (loop (cdr hs) (+ k 1)))))))
+                  (map (lambda (r) (list-ref r k)) rows))))
+         (num (lambda (name) (map string->number (col name))))
+         (cols (foldl (lambda (h nm) (hash-set h nm (map exact->inexact (num nm)))) (hash) (v4-col-names))))
+    (v4-pair-data (hash-ref p "name") (hash-ref p "half") (col "day")
+                  (map exact->inexact (num "close")) (map exact->inexact (num "conv"))
+                  (map exact->inexact (num "carry")) (map exact->inexact (num "nights")) cols)))
+
+(define (v4-pair-data name half days close conv carry nights cols)
+  (let* ((cprev (cons (car close) (v4-drop-last close)))
+         (dc (map - close cprev))
+         (carryp (cons 0.0 (v4-drop-last carry)))
+         (nightsp (cons 0.0 (v4-drop-last nights)))
+         (k (map (lambda (c r n) (/ (* V4-LOT c r n) 36500.0)) cprev carryp nightsp))
+         (m (map (lambda (c n) (/ (* V4-LOT c V4-MARKUP n) 36500.0)) cprev nightsp))
+         (inv (map (lambda (x) (/ 1.0 x)) conv)))
+    (hash "name" name "half" half "n" (length days) "days" days "cols" cols
+          "vcols" (foldl (lambda (h nm) (hash-set h nm (list->vector (hash-ref cols nm)))) (hash) (hash-keys cols))
+          "close" close "conv" conv "carry" carry "nights" nights
+          "dc" dc "k" k "m" m "inv" inv)))
+
+(define (v4-drop-last xs) (if (or (null? xs) (null? (cdr xs))) (list) (cons (car xs) (v4-drop-last-iter (cdr xs)))))
+(define (v4-drop-last-iter xs)
+  (let loop ((ys xs) (acc (list)))
+    (if (null? (cdr ys)) (reverse acc) (loop (cdr ys) (cons (car ys) acc)))))
+
+(define (v4-take xs n) (let loop ((ys xs) (k n) (acc (list))) (if (or (null? ys) (<= k 0)) (reverse acc) (loop (cdr ys) (- k 1) (cons (car ys) acc)))))
+(define (v4-slice xs a b) (v4-take (list-tail xs a) (- b a)))
+
+;; the first n days of a pair (a dataset that ends before day n)
+(define (v4-truncate p n)
+  (let ((cut (lambda (xs) (v4-take xs n))))
+    (v4-pair-data (hash-ref p "name") (hash-ref p "half") (cut (hash-ref p "days"))
+                  (cut (hash-ref p "close")) (cut (hash-ref p "conv")) (cut (hash-ref p "carry")) (cut (hash-ref p "nights"))
+                  (foldl (lambda (h nm) (hash-set h nm (cut (hash-ref (hash-ref p "cols") nm)))) (hash) (hash-keys (hash-ref p "cols"))))))
+
+(define (v4-day-index p iso)
+  (let loop ((ds (hash-ref p "days")) (i 0)) (cond ((null? ds) i) ((not (string<? (car ds) iso)) i) (else (loop (cdr ds) (+ i 1))))))
+
+;; ── DSL ──
+(define V4-UN (list 'neg 'abs 'sgn 'clip))
+(define V4-BIN (list '+ '- '* '/ 'min 'max))
+(define V4-FSYMS (list 'zret 'zsma 'dpos 'usd 'up 'vr 'carry 'r1))
+(define (v4-memq x xs) (cond ((null? xs) #f) ((eq? x (car xs)) #t) (else (v4-memq x (cdr xs)))))
+(define (v4-feat-lags sym)
+  (let loop ((fs V4-FEATS)) (cond ((null? fs) (list)) ((string=? (car (car fs)) (v4-sym-name sym)) (cdr (car fs))) (else (loop (cdr fs))))))
+
+(define (v4-feature? e) (and (pair? e) (v4-memq (car e) V4-FSYMS)))
+(define (v4-col-of e)
+  (if (null? (cdr e)) (v4-sym-name (car e)) (string-append (v4-sym-name (car e)) (number->string (cadr e)))))
+
+;; #f when e is a valid EXPR, else the reason. Written without (or ...)
+;; around the recursive calls: aura#5309 (or/and over a recursive call
+;; that reaches a std/list or std/string function returns a wrong value).
+(define (v4-sym-name s) (format "~a" s))
+(define (v4-first-bad es depth)
+  (if (null? es) #f
+    (let ((x (v4-bad-expr (car es) depth)))
+      (if x x (v4-first-bad (cdr es) depth)))))
+(define (v4-bad-expr e depth)
+  (cond
+    ((> depth V4-MAX-DEPTH) "too deep")
+    ((number? e) #f)
+    ((not (pair? e)) (string-append "unknown atom " (datum->string e)))
+    ((v4-feature? e)
+     (let ((lags (v4-feat-lags (car e))))
+       (cond ((null? lags) (if (null? (cdr e)) #f "feature takes no argument"))
+             ((and (pair? (cdr e)) (null? (cddr e)) (v4-memq-num (cadr e) lags)) #f)
+             (else (string-append "bad lag in " (datum->string e))))))
+    ((v4-memq (car e) V4-UN) (if (= (length e) 2) (v4-first-bad (cdr e) (+ depth 1)) "unary arity"))
+    ((v4-memq (car e) V4-BIN) (if (= (length e) 3) (v4-first-bad (cdr e) (+ depth 1)) "binary arity"))
+    ((eq? (car e) 'ifgt) (if (= (length e) 5) (v4-first-bad (cdr e) (+ depth 1)) "ifgt arity"))
+    (else (string-append "unknown operator " (datum->string (car e))))))
+(define (v4-memq-num x xs) (cond ((null? xs) #f) ((and (number? x) (= x (car xs))) #t) (else (v4-memq-num x (cdr xs)))))
+
+(define (v4-nodes e)
+  (cond ((number? e) 1) ((v4-feature? e) 1) ((pair? e) (+ 1 (foldl + 0 (map v4-nodes (cdr e))))) (else 1)))
+
+(define (v4-rule-expr r) (list-ref r 1))
+(define (v4-rule-tin r) (exact->inexact (list-ref r 2)))
+(define (v4-rule-tout r) (exact->inexact (list-ref r 3)))
+(define (v4-rule-hold r) (list-ref r 4))
+
+;; #f when r is a valid rule, else the reason
+(define (v4-bad-rule r)
+  (cond ((not (and (pair? r) (eq? (car r) 'rule) (= (length r) 5))) "not (rule EXPR TIN TOUT HOLD)")
+        ((not (and (number? (list-ref r 2)) (number? (list-ref r 3)) (number? (list-ref r 4)))) "thresholds must be numbers")
+        ((not (and (> (list-ref r 2) 0.0) (<= (list-ref r 2) 5.0))) "TIN outside (0, 5]")
+        ((not (and (>= (list-ref r 3) -2.0) (< (list-ref r 3) (list-ref r 2)))) "TOUT outside [-2, TIN)")
+        ((not (and (integer? (list-ref r 4)) (>= (list-ref r 4) 1) (<= (list-ref r 4) 60))) "HOLD not an integer in 1..60")
+        ((> (v4-nodes (list-ref r 1)) V4-MAX-NODES) "more than 25 nodes")
+        (else (v4-bad-expr (list-ref r 1) 1))))
+
+(define (v4-fix-rule r)
+  (let* ((tin (min 5.0 (max 0.05 (exact->inexact (list-ref r 2)))))
+         (tout (min (- tin 0.05) (max -2.0 (exact->inexact (list-ref r 3)))))
+         (hold (min 60 (max 1 (inexact->exact (round (list-ref r 4)))))))
+    (list 'rule (list-ref r 1) (m-round tin 3) (m-round tout 3) hold)))
+
+;; ── column evaluator ──
+(define (v4-lift1 f a) (if (number? a) (f a) (map f a)))
+(define (v4-lift2 f a b)
+  (cond ((and (number? a) (number? b)) (f a b))
+        ((number? a) (map (lambda (y) (f a y)) b))
+        ((number? b) (map (lambda (x) (f x b)) a))
+        (else (map f a b))))
+(define (v4-as-list a n) (if (number? a) (make-list n (exact->inexact a)) a))
+
+(define (v4-veval e p)
+  (cond
+    ((number? e) (exact->inexact e))
+    ((v4-feature? e) (hash-ref (hash-ref p "cols") (v4-col-of e)))
+    (else
+     (let ((op (car e)))
+       (cond
+         ((eq? op 'neg) (v4-lift1 (lambda (x) (- x)) (v4-veval (cadr e) p)))
+         ((eq? op 'abs) (v4-lift1 v4-abs (v4-veval (cadr e) p)))
+         ((eq? op 'sgn) (v4-lift1 v4-sgn (v4-veval (cadr e) p)))
+         ((eq? op 'clip) (v4-lift1 v4-clip (v4-veval (cadr e) p)))
+         ((eq? op '+) (v4-lift2 + (v4-veval (cadr e) p) (v4-veval (car (cddr e)) p)))
+         ((eq? op '-) (v4-lift2 - (v4-veval (cadr e) p) (v4-veval (car (cddr e)) p)))
+         ((eq? op '*) (v4-lift2 * (v4-veval (cadr e) p) (v4-veval (car (cddr e)) p)))
+         ((eq? op '/) (v4-lift2 v4-pdiv (v4-veval (cadr e) p) (v4-veval (car (cddr e)) p)))
+         ((eq? op 'min) (v4-lift2 min (v4-veval (cadr e) p) (v4-veval (car (cddr e)) p)))
+         ((eq? op 'max) (v4-lift2 max (v4-veval (cadr e) p) (v4-veval (car (cddr e)) p)))
+         ((eq? op 'ifgt)
+          (let* ((n (hash-ref p "n"))
+                 (a (v4-veval (list-ref e 1) p)) (b (v4-veval (list-ref e 2) p))
+                 (c (v4-veval (list-ref e 3) p)) (d (v4-veval (list-ref e 4) p)))
+            (if (and (number? a) (number? b) (number? c) (number? d)) (if (> a b) c d)
+              (map (lambda (x y u v) (if (> x y) u v)) (v4-as-list a n) (v4-as-list b n) (v4-as-list c n) (v4-as-list d n)))))
+         (else 0.0))))))
+
+;; positions from a score list
+(define (v4-positions scores tin tout hold)
+  (let loop ((ss scores) (p 0) (h 1000000) (acc (list)))
+    (if (null? ss) (reverse acc)
+      (let* ((s (car ss))
+             (want (cond ((= p 0) (cond ((> s tin) 1) ((< s (- tin)) -1) (else 0)))
+                         ((= p 1) (cond ((< s (- tin)) -1) ((< s tout) 0) (else 1)))
+                         (else (cond ((> s tin) 1) ((> s (- tout)) 0) (else -1)))))
+             (p2 (if (or (= want p) (and (not (= p 0)) (< h hold))) p want))
+             (h2 (if (= p2 p) (+ h 1) 1)))
+        (loop (cdr ss) p2 h2 (cons p2 acc))))))
+
+;; daily USD pnl of one pair (all days) and |dp| per day
+(define (v4-pair-pnl p pos)
+  (let* ((pprev (cons 0 (v4-drop-last pos)))
+         (half (hash-ref p "half"))
+         (pnl (map (lambda (p0 p1 dc k m inv)
+                     (* inv (- (+ (* p0 (+ (* V4-LOT dc) k))) (+ (* (v4-abs p0) m) (* (v4-abs (- p1 p0)) V4-LOT half)))))
+                   pprev pos (hash-ref p "dc") (hash-ref p "k") (hash-ref p "m") (hash-ref p "inv")))
+         (tr (map (lambda (p0 p1) (v4-abs (- p1 p0))) pprev pos)))
+    (hash "pnl" pnl "tr" tr)))
+
+(define (v4-max-dd xs)
+  (let loop ((ys xs) (eq 0.0) (pk 0.0) (dd 0.0))
+    (if (null? ys) dd
+      (let* ((e (+ eq (car ys))) (k (if (> e pk) e pk)))
+        (loop (cdr ys) e k (if (> (- k e) dd) (- k e) dd))))))
+
+(define (v4-sum-lists ls) (if (null? (cdr ls)) (car ls) (foldl (lambda (acc l) (map + acc l)) (car ls) (cdr ls))))
+
+;; Evaluate rule r on dataset ds (list of pairs on one calendar), days
+;; [a, b). scores-fn: (p) -> score list (default: the column evaluator).
+(define (v4-eval-with ds r a b scores-fn)
+  (let* ((runs (map (lambda (p)
+                      (let* ((pos (v4-positions (scores-fn p) (v4-rule-tin r) (v4-rule-tout r) (v4-rule-hold r)))
+                             (pp (v4-pair-pnl p pos)))
+                        (hash "name" (hash-ref p "name")
+                              "daily" (v4-slice (hash-ref pp "pnl") a b)
+                              "fills" (m-sum (map exact->inexact (v4-slice (hash-ref pp "tr") a b))))))
+                    ds))
+         (daily (v4-sum-lists (map (lambda (x) (hash-ref x "daily")) runs)))
+         (years (/ (- b a) 252.0))
+         (fy (/ (m-sum (map (lambda (x) (hash-ref x "fills")) runs)) (* (length ds) (max years 0.01))))
+         (sr (m-sharpe daily)))
+    (hash "daily" daily "sum" (m-sum daily) "sr-daily" sr "sharpe" (* V4-ANN sr)
+          "max-dd" (v4-max-dd daily) "fills-yr" fy "nodes" (v4-nodes (v4-rule-expr r))
+          "per-pair" (map (lambda (x) (list (hash-ref x "name") (m-round (m-sum (hash-ref x "daily")) 1) (m-round (/ (hash-ref x "fills") (max years 0.01)) 1))) runs))))
+
+(define (v4-eval ds r a b)
+  (v4-eval-with ds r a b
+    (lambda (p) (v4-as-list (v4-veval (v4-rule-expr r) p) (hash-ref p "n")))))
+
+(define (v4-viol e)
+  (+ (max 0.0 (- V4-FILLS-MIN (hash-ref e "fills-yr")))
+     (max 0.0 (- (hash-ref e "fills-yr") V4-FILLS-MAX))
+     (max 0.0 (/ (- (hash-ref e "max-dd") V4-MAX-DD) 1000.0))))
+
+;; search fitness: annualised Sharpe minus 0.01 per node above 10
+(define (v4-fitness e) (- (hash-ref e "sharpe") (* 0.01 (max 0 (- (hash-ref e "nodes") 10)))))
+
+;; ── Aura code for the gate path ──
+(define (v4-num->code x)
+  (let ((s (number->string (exact->inexact x)))) s))
+(define (v4-render e)
+  (cond
+    ((number? e) (v4-num->code e))
+    ((v4-feature? e) (string-append "(v4x \"" (v4-col-of e) "\" i)"))
+    (else
+     (let* ((op (car e)) (args (map v4-render (cdr e)))
+            (j (lambda (head) (string-append "(" head " " (string-join args " ") ")"))))
+       (cond ((eq? op 'neg) (j "v4o-neg")) ((eq? op 'abs) (j "v4-abs")) ((eq? op 'sgn) (j "v4-sgn"))
+             ((eq? op 'clip) (j "v4-clip")) ((eq? op '/) (j "v4-pdiv")) ((eq? op 'ifgt) (j "v4o-ifgt"))
+             ((eq? op '+) (j "v4o-add")) ((eq? op '-) (j "v4o-sub")) ((eq? op '*) (j "v4o-mul"))
+             ((eq? op 'min) (j "v4o-min")) ((eq? op 'max) (j "v4o-max"))
+             (else (j (v4-sym-name op))))))))
+;; Every operator renders as a call to a module function, so the rebound
+;; rule-score body is calls only. With inline `if`/`>`/`+` on the Any
+;; values of v4x, mutate:rebind's production typing either rejected the
+;; body (if joining Any and Float) or tripped the process-wide CastOp
+;; density streak gate, depending on earlier rebinds (aura#5310).
+(define (v4o-neg a) (- a))
+(define (v4o-add a b) (+ a b))
+(define (v4o-sub a b) (- a b))
+(define (v4o-mul a b) (* a b))
+(define (v4o-min a b) (min a b))
+(define (v4o-max a b) (max a b))
+(define (v4o-ifgt a b c d) (if (> a b) c d))
+(define (v4-rule-code r) (string-append "(lambda (i) " (v4-render (v4-rule-expr r)) ")"))
+
+;; the pair the workspace rule reads (set! from this module only)
+(define *v4-cur* (vector (hash)))
+(define (v4x name i) (vector-ref (hash-ref (vector-ref *v4-cur* 0) name) i))
+(define (v4-live-score i) (rule-score i))
+(define (v4-bar-scores p)
+  (vector-set! *v4-cur* 0 (hash-ref p "vcols"))
+  (map (lambda (i) (exact->inexact (v4-live-score i))) (v4-range 0 (hash-ref p "n"))))
+
+;; ── parallel map over fibers ──
+;; aura fibers gave no speed-up on this list-heavy evaluator (aura#5304, #5307), so
+;; the search runs one process per fold-arm and evaluates sequentially.
+(define V4-WORKERS 1)
+(define (v4-chunk xs k)
+  (let* ((n (length xs)) (size (max 1 (quotient (+ n k -1) k))))
+    (let loop ((ys xs) (cur (list)) (c 0) (acc (list)))
+      (cond ((null? ys) (reverse (if (null? cur) acc (cons (reverse cur) acc))))
+            ((= c size) (loop ys (list) 0 (cons (reverse cur) acc)))
+            (else (loop (cdr ys) (cons (car ys) cur) (+ c 1) acc))))))
+(define (v4-par-map f xs)
+  (if (or (< V4-WORKERS 2) (< (length xs) 2)) (map f xs)
+    (apply append (map fiber:join (map (lambda (part) (fiber:spawn (lambda () (map f part)))) (v4-chunk xs V4-WORKERS))))))
+
+;; ── deterministic RNG ──
+(define *v4-rng* (vector 1))
+(define (v4-seed! s)
+  (vector-set! *v4-rng* 0 (+ 1 (modulo (+ 12345 (* s 7919)) 2147483646)))
+  (let loop ((k 0)) (if (< k 20) (begin (v4-rand) (loop (+ k 1))) #t)))
+(define (v4-rand)
+  (let ((x (modulo (* (vector-ref *v4-rng* 0) 48271) 2147483647)))
+    (vector-set! *v4-rng* 0 x) (/ (exact->inexact x) 2147483647.0)))
+(define (v4-randint n) (min (- n 1) (inexact->exact (floor (* n (v4-rand))))))
+(define (v4-pick xs) (list-ref xs (v4-randint (length xs))))
+(define (v4-gauss) (let loop ((k 0) (s 0.0)) (if (>= k 12) (- s 6.0) (loop (+ k 1) (+ s (v4-rand))))))
+
+;; ── GP operators on datums ──
+(define (v4-rand-terminal)
+  (if (< (v4-rand) 0.2)
+    (m-round (- (* 4.0 (v4-rand)) 2.0) 2)
+    (let* ((f (v4-pick V4-FEATS)) (sym (string->symbol (car f))))
+      (if (null? (cdr f)) (list sym) (list sym (v4-pick (cdr f)))))))
+(define (v4-grow depth)
+  (if (or (<= depth 0) (< (v4-rand) 0.3)) (v4-rand-terminal)
+    (let ((u (v4-rand)))
+      (cond ((< u 0.2) (list (v4-pick V4-UN) (v4-grow (- depth 1))))
+            ((< u 0.85) (list (v4-pick V4-BIN) (v4-grow (- depth 1)) (v4-grow (- depth 1))))
+            (else (list 'ifgt (v4-grow (- depth 1)) (v4-grow (- depth 1)) (v4-grow (- depth 1)) (v4-grow (- depth 1))))))))
+(define (v4-rand-rule)
+  (let ((tin (m-round (+ 0.2 (* 1.8 (v4-rand))) 2)))
+    (list 'rule (v4-grow (+ 2 (v4-randint 3))) tin (m-round (* tin (- (* 1.2 (v4-rand)) 0.4)) 2) (+ 1 (v4-randint 20)))))
+
+;; preorder node k of e, and e with node k replaced
+(define (v4-node-at e k)
+  (if (= k 0) e
+    (if (or (number? e) (v4-feature? e)) e
+      (let loop ((cs (cdr e)) (k (- k 1)))
+        (let ((n (v4-nodes (car cs))))
+          (if (< k n) (v4-node-at (car cs) k) (loop (cdr cs) (- k n))))))))
+(define (v4-replace-at e k new)
+  (if (= k 0) new
+    (if (or (number? e) (v4-feature? e)) e
+      (cons (car e)
+            (let loop ((cs (cdr e)) (k (- k 1)) (acc (list)))
+              (if (null? cs) (reverse acc)
+                (let ((n (v4-nodes (car cs))))
+                  (if (and (>= k 0) (< k n))
+                    (append (reverse acc) (cons (v4-replace-at (car cs) k new) (cdr cs)))
+                    (loop (cdr cs) (- k n) (cons (car cs) acc))))))))))
+
+(define (v4-with-expr r e) (list 'rule e (list-ref r 2) (list-ref r 3) (list-ref r 4)))
+
+(define (v4-op-sub r)
+  (let* ((e (v4-rule-expr r)) (k (v4-randint (v4-nodes e))))
+    (v4-with-expr r (v4-replace-at e k (v4-grow 2)))))
+(define (v4-op-point r)
+  (let* ((e (v4-rule-expr r)) (k (v4-randint (v4-nodes e))) (x (v4-node-at e k))
+         (new (cond ((number? x) (m-round (+ x (* 0.5 (v4-gauss))) 2))
+                    ((v4-feature? x) (if (and (pair? (cdr x)) (< (v4-rand) 0.6))
+                                       (list (car x) (v4-pick (v4-feat-lags (car x))))
+                                       (v4-rand-terminal)))
+                    ((v4-memq (car x) V4-UN) (cons (v4-pick V4-UN) (cdr x)))
+                    ((v4-memq (car x) V4-BIN) (cons (v4-pick V4-BIN) (cdr x)))
+                    (else (list 'ifgt (list-ref x 3) (list-ref x 4) (list-ref x 1) (list-ref x 2))))))
+    (v4-with-expr r (v4-replace-at e k new))))
+(define (v4-op-xover r r2)
+  (let* ((e (v4-rule-expr r)) (e2 (v4-rule-expr r2)))
+    (v4-with-expr r (v4-replace-at e (v4-randint (v4-nodes e)) (v4-node-at e2 (v4-randint (v4-nodes e2)))))))
+(define (v4-op-hoist r)
+  (let* ((e (v4-rule-expr r)) (n (v4-nodes e)))
+    (if (< n 3) (v4-op-point r) (v4-with-expr r (v4-node-at e (+ 1 (v4-randint (- n 1))))))))
+(define (v4-op-param r)
+  (let* ((tin (* (v4-rule-tin r) (exp (* 0.3 (v4-gauss)))))
+         (tout (+ (v4-rule-tout r) (* 0.2 (v4-gauss))))
+         (hold (+ (v4-rule-hold r) (inexact->exact (round (* 3.0 (v4-gauss)))))))
+    (v4-fix-rule (list 'rule (v4-rule-expr r) tin tout hold))))
+
+(define (v4-depth e) (if (or (number? e) (v4-feature? e)) 1 (+ 1 (apply max (map v4-depth (cdr e))))))
+(define (v4-legal r)
+  (let ((bad (v4-bad-rule r)))
+    (if bad #f (<= (v4-depth (v4-rule-expr r)) V4-MAX-DEPTH))))
+
+(define (v4-key r) (datum->string r))

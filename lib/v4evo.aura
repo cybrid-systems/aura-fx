@@ -1,0 +1,386 @@
+;; v4 search: GP + LLM proposals + gates, one fold and one arm at a time.
+;;
+;; Arms: "gp" (genetic programming only), "llm" (MiniMax proposals with
+;; feedback only), "hybrid" (GP whose population is seeded and refreshed
+;; by the LLM; the LLM prompt style is an adaptive operator too).
+;;
+;; Every gated candidate goes, in order, through
+;;   prop:check-proposal (+ a body scan) on its Aura code
+;;   -> evo:trial: rule-score rebound in a child worldline, run bar by bar,
+;;      must reproduce the column evaluator's daily pnl
+;;   -> feasibility (fills 2..30 per pair-year, max drawdown <= 4000 USD)
+;;   -> tune:gate (paired t, alpha 0.05) of its daily pnl against the
+;;      current champion's (flat at the start of a fold) on the fit days
+;;   -> deflated Sharpe > 0, charged for every candidate this fold-arm has
+;;      evaluated so far
+;;   -> evo:commit!: KEEP swaps rule-score through hot-strategy:swap!,
+;;      ROLLBACK is logged with the reason.
+;; GP candidates are gated once per generation (the generation's best new
+;; candidate, when it beats the champion's fitness); every LLM proposal is
+;; gated. The LLM only sees statistics from the fit days.
+
+(require "lib/v4")
+(require "std/llm" all:)
+
+;; ── workspace ──
+(define V4-FLAT-CODE "(lambda (i) 0.0)")
+(define (v4-boot!)
+  (set-code (string-append "(define rule-score " V4-FLAT-CODE ")\n"
+                           "(define rule-miner \"explore\")\n"
+                           "(define (risk-max-dd) 4000)\n"))
+  (eval-current)
+  (hot-strategy:register! "rule-score" V4-FLAT-CODE)
+  (hot-strategy:register! "rule-miner" "\"explore\""))
+
+(define (v4-rule-target? c)
+  (let ((t (evo:candidate-target c))) (and (string? t) (string=? t "rule-score"))))
+(define (v4-trial-apply s c)
+  (and (v4-rule-target? c) (eq? (mutate :rebind "rule-score" (evo:candidate-genome c) "trial") #t)))
+(define (v4-live-apply s c)
+  (and (v4-rule-target? c)
+       (car (hot-strategy:swap! "rule-score" (evo:candidate-genome c) (string-append "evo:" (evo:candidate-id c))))))
+(define (v4-gate-accept s c ev) (= 1 (evo:objective ev "gate-keep")))
+(define (v4-commit-search name seed)
+  (evo:search (hash "algo" name "seed" seed "budget" 0
+                    "objectives" (list (cons "fit-sharpe" "max"))
+                    "constraints" (list "match" "fills" "max-dd" "trial" "scope")
+                    "target" "rule-score" "apply" v4-live-apply "accept" v4-gate-accept)))
+
+(define (v4-prop-ctx)
+  (prop:ctx (hash "defines" (list "rule-score") "protected" (list "risk-max-dd")
+                  "max-nodes" 400 "max-chars" 4096)))
+(define V4-GUARD (list "set!" "eval" "risk-" "mutate" "hot-strategy" "set-code" "define-syntax" "getenv" "write-file" "read-file" "llm"))
+(define (v4-guard code)
+  (let loop ((ws V4-GUARD)) (cond ((null? ws) #f) ((string-contains? code (car ws)) (string-append "guard: " (car ws))) (else (loop (cdr ws))))))
+(define (v4-refusal code)
+  (let ((p (prop:check-proposal (hash "genome" (string-append "(define rule-score " code ")") "thought" "") (v4-prop-ctx))))
+    (if p p (v4-guard code))))
+
+;; ── a fold-arm context ──
+(define (v4-ctx arm fold ds a b seed)
+  (hash "arm" arm "fold" fold "ds" ds "a" a "b" b "seed" seed
+        "cache" (hash) "trials" (list) "evals" 0
+        "champ" #f "champ-daily" (make-list (- b a) 0.0) "champ-fit" 0.0
+        "s" (v4-commit-search (string-append "fx-v4-" arm "-" fold) seed)
+        "rows" (list) "fails" (list) "kept" 0 "rolled" 0
+        "llm-props" 0 "llm-kept" 0 "llm-bad" 0 "llm-calls" 0
+        "best" #f))
+
+(define (v4-member r e)
+  (hash "rule" r "key" (v4-key r) "fit" (if (> (v4-viol e) 0.0) (- (v4-fitness e) 10.0) (v4-fitness e))
+        "viol" (v4-viol e) "sharpe" (hash-ref e "sharpe") "sr-daily" (hash-ref e "sr-daily")
+        "sum" (hash-ref e "sum") "max-dd" (hash-ref e "max-dd") "fills-yr" (hash-ref e "fills-yr")
+        "nodes" (hash-ref e "nodes") "daily" (hash-ref e "daily") "per-pair" (hash-ref e "per-pair")))
+
+;; evaluate rules (deduplicated by datum), counting each new one as a trial
+(define (v4-evaluate! ctx rules)
+  (let* ((cache (hash-ref ctx "cache"))
+         (new (let loop ((rs rules) (seen (hash)) (acc (list)))
+                (cond ((null? rs) (reverse acc))
+                      ((or (hash-ref cache (v4-key (car rs)) #f) (hash-ref seen (v4-key (car rs)) #f)) (loop (cdr rs) seen acc))
+                      (else (loop (cdr rs) (hash-set seen (v4-key (car rs)) #t) (cons (car rs) acc))))))
+         (ds (hash-ref ctx "ds")) (a (hash-ref ctx "a")) (b (hash-ref ctx "b"))
+         (ms (v4-par-map (lambda (r) (v4-member r (v4-eval ds r a b))) new)))
+    (for-each (lambda (m)
+                (hash-set! cache (hash-ref m "key") m)
+                (hash-set! ctx "trials" (cons (hash-ref m "sr-daily") (hash-ref ctx "trials")))
+                (hash-set! ctx "evals" (+ 1 (hash-ref ctx "evals")))
+                (let ((bst (hash-ref ctx "best")))
+                  (if (and (= 0.0 (hash-ref m "viol")) (or (not bst) (> (hash-ref m "fit") (hash-ref bst "fit"))))
+                    (hash-set! ctx "best" m) #f)))
+              ms)
+    (map (lambda (r) (hash-ref cache (v4-key r))) rules)))
+
+;; per-bar trial in a child worldline; checks it matches the columns
+(define (v4-trial ctx cand r m)
+  (let ((ds (hash-ref ctx "ds")) (a (hash-ref ctx "a")) (b (hash-ref ctx "b")))
+    (evo:trial cand
+      (hash "apply" v4-trial-apply
+            "evaluate" (lambda (c)
+                         (let* ((e (v4-eval-with ds r a b v4-bar-scores))
+                                (diff (foldl max 0.0 (map (lambda (x y) (v4-abs (- x y))) (hash-ref e "daily") (hash-ref m "daily")))))
+                           (hash "objectives" (hash "sum" (hash-ref e "sum") "sharpe" (hash-ref e "sharpe") "diff" diff)
+                                 "constraints" (hash "match" (if (< diff 1e-6) 0.0 1.0)))))
+            "timeout-ms" 60000 "preset" "dev"))))
+
+(define (v4-row ctx m source reason kept t defl)
+  (hash "source" source "rule" (hash-ref m "key") "fit" (m-round (hash-ref m "fit") 3)
+        "sharpe" (m-round (hash-ref m "sharpe") 3) "sum" (m-round (hash-ref m "sum") 1)
+        "fills-yr" (m-round (hash-ref m "fills-yr") 1) "max-dd" (m-round (hash-ref m "max-dd") 1)
+        "nodes" (hash-ref m "nodes") "t" (m-round t 2) "deflated" (m-round defl 4)
+        "reason" reason "kept" kept "trials" (length (hash-ref ctx "trials"))))
+
+(define (v4-push! ctx key x) (hash-set! ctx key (cons x (hash-ref ctx key))))
+
+;; refused proposal (bad DSL or guard): logged as ROLLBACK with scope 1
+(define (v4-refuse! ctx text source reason)
+  (let* ((cand (evo:candidate text (hash "target" "rule-score" "thought" source)))
+         (ev (hash "objectives" (hash "gate-keep" 0 "fit-sharpe" 0.0)
+                   "constraints" (hash "match" 0.0 "fills" 0.0 "max-dd" 0.0 "trial" 0.0 "scope" 1.0) "behavior" (hash))))
+    (evo:commit! (hash-ref ctx "s") cand ev)
+    (hash-set! ctx "rolled" (+ 1 (hash-ref ctx "rolled")))
+    (v4-push! ctx "rows" (hash "source" source "rule" text "reason" reason "kept" #f))
+    (v4-push! ctx "fails" (list text reason))
+    #f))
+
+(define (v4-gate! ctx m source)
+  (let* ((r (hash-ref m "rule")) (code (v4-rule-code r))
+         (refusal (v4-refusal code)))
+    (if refusal (v4-refuse! ctx (hash-ref m "key") source refusal)
+      (let* ((cand (evo:candidate code (hash "target" "rule-score" "thought" (string-append source " " (hash-ref m "key")))))
+             (tr (v4-trial ctx cand r m))
+             (ok (evo:trial-ok? tr))
+             (match (and ok (= 0.0 (hash-ref (hash-ref tr "constraints" (hash)) "match" 1.0))))
+             (g (tune:gate (hash-ref m "daily") (hash-ref ctx "champ-daily") (hash "alpha" 0.05 "sense" "max")))
+             (d (m-deflated (hash-ref m "daily") (hash-ref ctx "trials")))
+             (keep (and ok match (= 0.0 (hash-ref m "viol")) (hash-ref g "keep") (> (hash-ref d "deflated") 0.0)))
+             (ev (hash "objectives" (hash "fit-sharpe" (hash-ref m "sharpe") "gate-keep" (if keep 1 0)
+                                          "gate-t" (hash-ref g "t") "deflated" (hash-ref d "deflated"))
+                       "constraints" (hash "match" (if match 0.0 1.0)
+                                           "fills" (+ (max 0.0 (- V4-FILLS-MIN (hash-ref m "fills-yr"))) (max 0.0 (- (hash-ref m "fills-yr") V4-FILLS-MAX)))
+                                           "max-dd" (max 0.0 (/ (- (hash-ref m "max-dd") V4-MAX-DD) 1000.0))
+                                           "trial" (if ok 0.0 1.0) "scope" 0.0)
+                       "behavior" (hash "fills-yr" (hash-ref m "fills-yr") "nodes" (hash-ref m "nodes"))))
+             (kept (evo:commit! (hash-ref ctx "s") cand ev))
+             (reason (cond ((not ok) (string-append "trial " (format "~a" (hash-ref tr "status"))))
+                           ((not match) "trial: bar-by-bar result differs")
+                           ((> (hash-ref m "viol") 0.0)
+                            (string-append "infeasible: fills/yr " (number->string (m-round (hash-ref m "fills-yr") 1))
+                                           " max-dd " (number->string (m-round (hash-ref m "max-dd") 0))))
+                           ((not (hash-ref g "keep")) (string-append "t " (number->string (m-round (hash-ref g "t") 2)) " vs champion below crit"))
+                           ((not (> (hash-ref d "deflated") 0.0)) (string-append "deflated " (number->string (m-round (hash-ref d "deflated") 4))))
+                           (else "kept"))))
+        (if kept
+          (begin (hash-set! ctx "champ" m) (hash-set! ctx "champ-daily" (hash-ref m "daily"))
+                 (hash-set! ctx "champ-fit" (hash-ref m "fit")) (hash-set! ctx "kept" (+ 1 (hash-ref ctx "kept"))))
+          (begin (hash-set! ctx "rolled" (+ 1 (hash-ref ctx "rolled")))
+                 (v4-push! ctx "fails" (list (hash-ref m "key") reason))))
+        (v4-push! ctx "rows" (v4-row ctx m source reason kept (hash-ref g "t") (hash-ref d "deflated")))
+        kept))))
+
+;; ── LLM ──
+(define *v4-calls* (vector (list)))
+(define (v4-ask sys usr)
+  (let* ((t0 (monotonic-ms))
+         (r (llm:chat sys usr (hash "reasoning_effort" "minimal" "max_tokens" 1800) 120))
+         (ms (- (monotonic-ms) t0))
+         (ok (eq? (hash-ref r "ok" #f) #t)))
+    (vector-set! *v4-calls* 0 (cons (hash "ms" ms "ok" ok "error" (if ok "" (format "~a" (hash-ref r "error" "?")))) (vector-ref *v4-calls* 0)))
+    (if ok (hash-ref r "content" "") #f)))
+
+(define (v4-balanced-end s start)
+  (let loop ((k start) (depth 0))
+    (if (>= k (string-length s)) -1
+      (let ((c (string-ref s k)))
+        (cond ((char=? c #\() (loop (+ k 1) (+ depth 1)))
+              ((char=? c #\)) (if (= depth 1) (+ k 1) (loop (+ k 1) (- depth 1))))
+              (else (loop (+ k 1) depth)))))))
+(define (v4-extract-rules s)
+  (let loop ((from 0) (acc (list)))
+    (let ((k (string-index s "(rule " from)))
+      (if (or (not k) (< k 0)) (reverse acc)
+        (let ((e (v4-balanced-end s k)))
+          (if (< e 0) (reverse acc) (loop e (cons (substring s k e) acc))))))))
+
+;; (- a) is read as (neg a); everything else must already be valid
+(define (v4-normalize e)
+  (cond ((not (pair? e)) e)
+        ((v4-feature? e) e)
+        ((and (eq? (car e) '-) (pair? (cdr e)) (null? (cddr e))) (list 'neg (v4-normalize (cadr e))))
+        (else (cons (car e) (map v4-normalize (cdr e))))))
+(define (v4-parse-rule text)
+  (let ((d (read-from-string text)))
+    (if (and (pair? d) (eq? (car d) 'parse)) (cons #f "parse error")
+      (let* ((d2 (if (and (pair? d) (eq? (car d) 'rule) (= (length d) 5)) (v4-with-expr d (v4-normalize (list-ref d 1))) d))
+             (bad (v4-bad-rule d2)))
+        (if bad (cons #f bad) (cons d2 #f))))))
+
+(define V4-SYS
+  (string-append
+    "You design daily trading rules for major FX pairs in a small rule language (S-expressions). "
+    "Answer with rules only, one per line, each exactly (rule EXPR TIN TOUT HOLD). No prose, no code fences. "
+    "EXPR is a score computed at each daily close from these features (all use only past and current closes): "
+    "(zret L) L in 5 10 20 60 120: L-day return in volatility units; "
+    "(zsma L) L in 10 20 50 100 200: close minus its L-day mean, in volatility units; "
+    "(dpos N) N in 10 20 55 120: position of the close in its N-day range, -1 at the low, +1 at the high; "
+    "(usd L) L in 5 20 60: broad USD strength over L days, signed so that positive means this pair tends to go UP "
+    "(0 for pairs without USD); (up L) L in 10 20 60: share of up days minus down days, -1..1; "
+    "(vr): short over long volatility (about 1 normally); (carry): base minus quote policy rate in percent "
+    "(positive means a long position earns rollover); (r1): today's return in volatility units; numeric constants. "
+    "Operators: (+ a b) (- a b) (* a b) (/ a b) (min a b) (max a b) (neg a) (abs a) (sgn a) (clip a) (clip limits to -3..3) "
+    "and (ifgt a b c d) = c if a > b else d. At most 25 nodes, depth at most 6. "
+    "Position: flat goes long when score > TIN and short when score < -TIN; long exits when score < TOUT "
+    "(short exits when score > -TOUT) and flips when it crosses the opposite TIN; after any change of an open "
+    "position the rule waits HOLD days. 0 < TIN <= 5, -2 <= TOUT < TIN, HOLD integer 1..60. "
+    "Costs: the full spread (1.3 to 1.85 pips) on every round trip, and rollover each night: policy-rate "
+    "differential minus a 1% per year broker markup, so holding against carry costs money. "
+    "The same rule trades EUR/USD, GBP/USD, USD/JPY and AUD/USD with one 10,000-unit lot each; "
+    "the score is the daily Sharpe ratio of the summed pnl. Rules that trade under 2 or over 30 times per "
+    "pair-year are rejected, as is a drawdown above 4000 USD."))
+
+(define (v4-fmt x k) (number->string (m-round x k)))
+(define (v4-member-line m)
+  (string-append (hash-ref m "key") "  ; sharpe " (v4-fmt (hash-ref m "sharpe") 2)
+                 " fills/yr " (v4-fmt (hash-ref m "fills-yr") 1) " maxdd " (v4-fmt (hash-ref m "max-dd") 0)
+                 " nodes " (number->string (hash-ref m "nodes"))))
+
+(define V4-STYLES (list "explore" "refine" "repair"))
+(define (v4-style-text style)
+  (cond ((string=? style "explore")
+         "Propose 4 NEW rules whose structure differs from the rules above (other features, regime switches with ifgt, carry or usd combined with price features, volatility filters).")
+        ((string=? style "refine")
+         "Propose 4 variants of the best rules above that keep their idea but should raise the Sharpe ratio or cut turnover and drawdown.")
+        (else
+         "The rules under 'recent failures' were rejected for the reasons given. Propose 4 rules that fix those reasons while keeping a sound idea.")))
+
+(define (v4-prompt ctx style top fit-years term-lines)
+  (string-append
+    "Training data: daily closes " fit-years ", four pairs. Nothing after that period is shown to you.\n"
+    "Single-feature rules (rule F 0.5 0.0 5) on these years:\n" term-lines
+    "Best rules found so far:\n"
+    (if (null? top) "none yet\n" (apply string-append (map (lambda (m) (string-append (v4-member-line m) "\n")) top)))
+    "Current champion (the rule a new one must beat by a paired t-test): "
+    (if (hash-ref ctx "champ") (hash-ref (hash-ref ctx "champ") "key") "none (flat, i.e. no trading)") "\n"
+    "Recent failures:\n"
+    (let ((fs (v4-take (hash-ref ctx "fails") 6)))
+      (if (null? fs) "none yet\n" (apply string-append (map (lambda (f) (string-append (car f) "  ; " (cadr f) "\n")) fs))))
+    (v4-style-text style)))
+
+(define (v4-term-lines ctx)
+  (let* ((rules (apply append (map (lambda (f) (if (null? (cdr f)) (list (list (string->symbol (car f))))
+                                                  (map (lambda (l) (list (string->symbol (car f)) l)) (cdr f))))
+                                   V4-FEATS)))
+         (ms (v4-evaluate! ctx (map (lambda (t) (list 'rule t 0.5 0.0 5)) rules))))
+    (apply string-append
+           (map (lambda (m) (string-append (datum->string (list-ref (hash-ref m "rule") 1)) ": sharpe " (v4-fmt (hash-ref m "sharpe") 2)
+                                           " fills/yr " (v4-fmt (hash-ref m "fills-yr") 1) "\n"))
+                ms))))
+
+;; one LLM round: returns the evaluated, gated members
+(define (v4-llm-round! ctx style top fit-years term-lines)
+  (hot-strategy:swap! "rule-miner" (string-append "\"" style "\"") (string-append "miner style " style))
+  (hash-set! ctx "llm-calls" (+ 1 (hash-ref ctx "llm-calls")))
+  (let* ((reply (v4-ask V4-SYS (v4-prompt ctx style top fit-years term-lines)))
+         (texts (if reply (v4-take (v4-extract-rules reply) 6) (list)))
+         (parsed (map v4-parse-rule texts))
+         (good (let loop ((ps parsed) (ts texts) (acc (list)))
+                 (cond ((null? ps) (reverse acc))
+                       ((car (car ps)) (loop (cdr ps) (cdr ts) (cons (car (car ps)) acc)))
+                       (else (hash-set! ctx "llm-bad" (+ 1 (hash-ref ctx "llm-bad")))
+                             (v4-refuse! ctx (car ts) (string-append "llm-" style) (cdr (car ps)))
+                             (loop (cdr ps) (cdr ts) acc)))))
+         (ms (v4-evaluate! ctx good)))
+    (hash-set! ctx "llm-props" (+ (hash-ref ctx "llm-props") (length texts)))
+    (for-each (lambda (m) (if (v4-gate! ctx m (string-append "llm-" style)) (hash-set! ctx "llm-kept" (+ 1 (hash-ref ctx "llm-kept"))) #f)) ms)
+    ms))
+
+;; ── NSGA-II style environmental selection (fit max, nodes min) ──
+(define (v4-select pool k)
+  (let* ((items (map (lambda (m) (hash "objs" (list (hash-ref m "fit") (exact->inexact (hash-ref m "nodes"))) "viol" (hash-ref m "viol") "m" m)) pool))
+         (fronts (pareto:nd-sort items (hash "dirs" (list "max" "min")))))
+    (let loop ((fs fronts) (rank 0) (acc (list)))
+      (cond ((or (null? fs) (>= (length acc) k)) (v4-take (reverse acc) k))
+            (else
+             (let* ((f (car fs)) (cd (pareto:crowding f (hash "dirs" (list "max" "min"))))
+                    (tagged (map (lambda (it c) (hash-set (hash-set (hash-ref it "m") "rank" rank) "crowd" c)) f cd))
+                    (sorted (sort tagged (lambda (x y) (> (hash-ref x "crowd") (hash-ref y "crowd"))))))
+               (loop (cdr fs) (+ rank 1) (append (reverse sorted) acc))))))))
+
+(define (v4-better? x y)
+  (or (< (hash-ref x "rank" 0) (hash-ref y "rank" 0))
+      (and (= (hash-ref x "rank" 0) (hash-ref y "rank" 0)) (> (hash-ref x "fit") (hash-ref y "fit")))))
+(define (v4-tournament pop) (let ((x (v4-pick pop)) (y (v4-pick pop))) (if (v4-better? x y) x y)))
+
+(define V4-OPS (list "subtree" "point" "xover" "hoist" "param"))
+(define (v4-apply-op op pop)
+  (let ((p1 (v4-tournament pop)))
+    (cons p1
+          (cond ((string=? op "subtree") (v4-op-sub (hash-ref p1 "rule")))
+                ((string=? op "point") (v4-op-point (hash-ref p1 "rule")))
+                ((string=? op "xover") (v4-op-xover (hash-ref p1 "rule") (hash-ref (v4-tournament pop) "rule")))
+                ((string=? op "hoist") (v4-op-hoist (hash-ref p1 "rule")))
+                (else (v4-op-param (hash-ref p1 "rule")))))))
+
+;; ES on (TIN, TOUT, HOLD) of one rule: 2 rounds of 6 through search:init
+(define (v4-es-tune! ctx m seed)
+  (let* ((r (hash-ref m "rule"))
+         (dec (lambda (g) (v4-fix-rule (list 'rule (v4-rule-expr r) (+ 0.05 (* 3.0 (list-ref g 0)))
+                                              (- (* (list-ref g 1) 3.0) 1.5) (+ 1 (* 40.0 (list-ref g 2)))))))
+         (st0 (search:init "es" (hash "dim" 3 "pop" 6 "mu" 2 "lambda" 6 "sigma" 0.12
+                                      "bounds" (list (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0)) "seed" seed))))
+    (let loop ((st st0) (k 0) (acc (list)))
+      (if (>= k 2) acc
+        (let* ((pend (v4-take (search:pending st) 6))
+               (rules (map dec pend))
+               (ms (v4-evaluate! ctx (filter v4-legal rules)))
+               (scores (map (lambda (r2) (let ((h (hash-ref (hash-ref ctx "cache") (v4-key r2) #f))) (if h (hash-ref h "fit") -20.0))) rules))
+               (st2 (foldl (lambda (s x) (search:step s x)) st scores)))
+          (loop st2 (+ k 1) (append ms acc)))))))
+
+(define (v4-median xs) (let ((s (sort xs <))) (if (null? s) 0.0 (list-ref s (quotient (length s) 2)))))
+
+;; ── one fold-arm ──
+;; opts: pop, gens, llm-every, llm-rounds (llm arm), fit-years
+;; One generation of children: pop-n slots, each picks an operator from
+;; the bandit and makes up to 7 attempts at a legal, not-yet-seen child.
+;; Written with a mutable accumulator (a named let that recursed through
+;; a nested loop returned a non-list here).
+(define (v4-make-children ctx pop pop-n next-op)
+  (let ((acc (list)) (cache (hash-ref ctx "cache")))
+    (for-each
+      (lambda (k)
+        (let ((op (next-op)) (done #f) (t 0))
+          (let try ()
+            (if (or done (> t 6)) #t
+              (let* ((pc (v4-apply-op op pop)) (child (cdr pc)))
+                (set! t (+ t 1))
+                (if (v4-legal child)
+                  (if (hash-ref cache (v4-key child) #f) #f
+                    (begin (set! acc (cons (list op (car pc) child) acc)) (set! done #t)))
+                  #f)
+                (try))))))
+      (v4-range 0 pop-n))
+    (reverse acc)))
+
+(define (v4-run-arm arm fold ds a b seed opts)
+  (v4-seed! seed)
+  (hot-strategy:swap! "rule-score" V4-FLAT-CODE (string-append "fold reset " fold " " arm))
+  (let* ((ctx (v4-ctx arm fold ds a b seed))
+         (pop-n (hash-ref opts "pop")) (gens (hash-ref opts "gens"))
+         (fit-years (hash-ref opts "fit-years"))
+         (use-llm (not (string=? arm "gp")))
+         (terms (if use-llm (v4-term-lines ctx) ""))
+         (hh (hh:make (hash "low-level" V4-OPS "credit" "frr" "window" 50 "decay" 0.5 "seed" seed)))
+         (hp (hh:make (hash "low-level" V4-STYLES "credit" "frr" "window" 20 "decay" 0.5 "seed" (+ seed 7))))
+         (top-of (lambda (pool) (v4-take (sort (filter (lambda (m) (= 0.0 (hash-ref m "viol"))) pool)
+                                               (lambda (x y) (> (hash-ref x "fit") (hash-ref y "fit")))) 5)))
+         (llm-step (lambda (pool)
+                     (let* ((nx (hh:next hp)) (style (car nx))
+                            (ms (v4-llm-round! ctx style (top-of pool) fit-years terms))
+                            (med (v4-median (map (lambda (m) (hash-ref m "fit")) pool)))
+                            (best (foldl (lambda (acc m) (max acc (hash-ref m "fit"))) -100.0 ms)))
+                       (set! hp (hh:credit! (cdr nx) style (max 0.0 (- best med))))
+                       ms))))
+    (if (string=? arm "llm")
+      (let loop ((k 0) (pool (list)))
+        (if (>= k (hash-ref opts "llm-rounds")) (hash-set! ctx "pool" pool)
+          (loop (+ k 1) (append pool (llm-step pool)))))
+      (let* ((init (v4-evaluate! ctx (let l ((k 0) (acc (list))) (if (>= k pop-n) acc (l (+ k 1) (cons (let r () (let ((x (v4-rand-rule))) (if (v4-legal x) x (r)))) acc))))))
+             (seeded (if use-llm (append init (llm-step init)) init)))
+        (let gl ((g 1) (pop (v4-select seeded pop-n)))
+          (if (> g gens) (hash-set! ctx "pool" pop)
+            (let* ((made (v4-make-children ctx pop pop-n (lambda () (let ((nx (hh:next hh))) (set! hh (cdr nx)) (car nx)))))
+                   (kids (v4-evaluate! ctx (map (lambda (x) (list-ref x 2)) made))))
+              (for-each (lambda (x kid) (set! hh (hh:credit! hh (car x) (max 0.0 (min 1.0 (- (hash-ref kid "fit") (hash-ref (cadr x) "fit")))))))
+                        made kids)
+              (let* ((best-pop (car (sort pop (lambda (x y) (> (hash-ref x "fit") (hash-ref y "fit"))))))
+                     (tuned (v4-es-tune! ctx best-pop (+ seed (* 31 g))))
+                     (fresh (append kids tuned))
+                     (cand (let ((fs (filter (lambda (m) (= 0.0 (hash-ref m "viol"))) fresh)))
+                             (if (null? fs) #f (car (sort fs (lambda (x y) (> (hash-ref x "fit") (hash-ref y "fit"))))))))
+                     (gated (if (and cand (> (hash-ref cand "fit") (hash-ref ctx "champ-fit"))) (v4-gate! ctx cand (string-append "gp-g" (number->string g))) #f))
+                     (llm-ms (if (and use-llm (= 0 (modulo g (hash-ref opts "llm-every")))) (llm-step (append pop fresh)) (list))))
+                (gl (+ g 1) (v4-select (append pop fresh llm-ms) pop-n))))))))
+    (hash-set! ctx "hh" (hh:report hh))
+    (hash-set! ctx "hh-prompt" (hh:report hp))
+    ctx))
