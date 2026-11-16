@@ -1,0 +1,2983 @@
+{
+ "v1": "race-N20-W120",
+ "v1-validation-sharpe-daily": -0.0762022921626285,
+ "f1": "h4-mom288-0.5",
+ "f1-validation-sharpe-daily": -0.025857550482704075,
+ "v*": "gate-N5-W60",
+ "f*": "h4-mr1440-1.0",
+ "v*-deflated": {
+  "sr-daily": 0.026869356040748315,
+  "sr0": 0.6821221884408889,
+  "deflated": -0.6552528324001405,
+  "dsr": 0.0,
+  "n": 126
+ },
+ "f*-deflated": {
+  "sr-daily": 0.011282062606728798,
+  "sr0": 0.6821221884408889,
+  "deflated": -0.6708401258341601,
+  "dsr": 0.0,
+  "n": 126
+ },
+ "deploy": {
+  "trade": false,
+  "variant": "flat",
+  "meta": null
+ },
+ "as-if": {
+  "adaptive": {
+   "variant": 13,
+   "N": 5,
+   "W": 60,
+   "method": "gate",
+   "switches": [
+    15,
+    14
+   ],
+   "heals": [
+    8,
+    8
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    238,
+    239
+   ],
+   "switch-cost": [
+    9.35,
+    11.25
+   ]
+  },
+  "fixed": "h4-mr1440-1.0"
+ },
+ "trials": {
+  "fixed": 96,
+  "adaptive": 27,
+  "smoke": 3,
+  "n": 126,
+  "sr-var": 0.06825790131144277
+ },
+ "table": {
+  "m5-mom12-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -68147.96,
+    "sharpe-ann": -17.541,
+    "days": 653
+   },
+   "validation": {
+    "sum": -53275.73,
+    "sharpe-ann": -13.926,
+    "days": 520
+   },
+   "full": {
+    "sum": -121423.69,
+    "sharpe-ann": -15.659,
+    "days": 1173
+   }
+  },
+  "m5-mom12-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -43393.59,
+    "sharpe-ann": -12.465,
+    "days": 653
+   },
+   "validation": {
+    "sum": -34003.82,
+    "sharpe-ann": -9.897,
+    "days": 520
+   },
+   "full": {
+    "sum": -77397.41,
+    "sharpe-ann": -11.125,
+    "days": 1173
+   }
+  },
+  "m5-mom48-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -26493.77,
+    "sharpe-ann": -6.613,
+    "days": 653
+   },
+   "validation": {
+    "sum": -20985.37,
+    "sharpe-ann": -5.433,
+    "days": 520
+   },
+   "full": {
+    "sum": -47479.14,
+    "sharpe-ann": -6.007,
+    "days": 1173
+   }
+  },
+  "m5-mom48-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -15522.67,
+    "sharpe-ann": -4.405,
+    "days": 653
+   },
+   "validation": {
+    "sum": -12607.81,
+    "sharpe-ann": -3.657,
+    "days": 520
+   },
+   "full": {
+    "sum": -28130.48,
+    "sharpe-ann": -4.014,
+    "days": 1173
+   }
+  },
+  "m5-mom288-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2347.97,
+    "sharpe-ann": -0.621,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4248.41,
+    "sharpe-ann": -1.132,
+    "days": 520
+   },
+   "full": {
+    "sum": -6596.38,
+    "sharpe-ann": -0.87,
+    "days": 1173
+   }
+  },
+  "m5-mom288-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -373.76,
+    "sharpe-ann": -0.112,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1523.65,
+    "sharpe-ann": -0.449,
+    "days": 520
+   },
+   "full": {
+    "sum": -1897.41,
+    "sharpe-ann": -0.28,
+    "days": 1173
+   }
+  },
+  "m5-mom1440-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2018.61,
+    "sharpe-ann": -0.527,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2604.53,
+    "sharpe-ann": -0.701,
+    "days": 520
+   },
+   "full": {
+    "sum": -4623.14,
+    "sharpe-ann": -0.61,
+    "days": 1173
+   }
+  },
+  "m5-mom1440-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1409.85,
+    "sharpe-ann": -0.398,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1243.15,
+    "sharpe-ann": -0.367,
+    "days": 520
+   },
+   "full": {
+    "sum": -2653.0,
+    "sharpe-ann": -0.381,
+    "days": 1173
+   }
+  },
+  "m5-mr12-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -35948.44,
+    "sharpe-ann": -11.828,
+    "days": 653
+   },
+   "validation": {
+    "sum": -28314.22,
+    "sharpe-ann": -9.303,
+    "days": 520
+   },
+   "full": {
+    "sum": -64262.66,
+    "sharpe-ann": -10.496,
+    "days": 1173
+   }
+  },
+  "m5-mr12-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -13735.43,
+    "sharpe-ann": -5.406,
+    "days": 653
+   },
+   "validation": {
+    "sum": -11666.06,
+    "sharpe-ann": -4.624,
+    "days": 520
+   },
+   "full": {
+    "sum": -25401.49,
+    "sharpe-ann": -4.986,
+    "days": 1173
+   }
+  },
+  "m5-mr48-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -10052.63,
+    "sharpe-ann": -3.119,
+    "days": 653
+   },
+   "validation": {
+    "sum": -8215.41,
+    "sharpe-ann": -2.535,
+    "days": 520
+   },
+   "full": {
+    "sum": -18268.04,
+    "sharpe-ann": -2.807,
+    "days": 1173
+   }
+  },
+  "m5-mr48-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -4362.38,
+    "sharpe-ann": -1.595,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3890.81,
+    "sharpe-ann": -1.394,
+    "days": 520
+   },
+   "full": {
+    "sum": -8253.19,
+    "sharpe-ann": -1.482,
+    "days": 1173
+   }
+  },
+  "m5-mr288-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3710.41,
+    "sharpe-ann": -1.088,
+    "days": 653
+   },
+   "validation": {
+    "sum": -533.72,
+    "sharpe-ann": -0.157,
+    "days": 520
+   },
+   "full": {
+    "sum": -4244.13,
+    "sharpe-ann": -0.619,
+    "days": 1173
+   }
+  },
+  "m5-mr288-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1377.43,
+    "sharpe-ann": -0.488,
+    "days": 653
+   },
+   "validation": {
+    "sum": -584.87,
+    "sharpe-ann": -0.215,
+    "days": 520
+   },
+   "full": {
+    "sum": -1962.3,
+    "sharpe-ann": -0.353,
+    "days": 1173
+   }
+  },
+  "m5-mr1440-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2151.86,
+    "sharpe-ann": -0.584,
+    "days": 653
+   },
+   "validation": {
+    "sum": -787.05,
+    "sharpe-ann": -0.228,
+    "days": 520
+   },
+   "full": {
+    "sum": -2938.91,
+    "sharpe-ann": -0.41,
+    "days": 1173
+   }
+  },
+  "m5-mr1440-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -64.24,
+    "sharpe-ann": -0.021,
+    "days": 653
+   },
+   "validation": {
+    "sum": 796.14,
+    "sharpe-ann": 0.267,
+    "days": 520
+   },
+   "full": {
+    "sum": 731.9,
+    "sharpe-ann": 0.12,
+    "days": 1173
+   }
+  },
+  "m5-brk12-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -95331.57,
+    "sharpe-ann": -25.864,
+    "days": 653
+   },
+   "validation": {
+    "sum": -77191.54,
+    "sharpe-ann": -20.025,
+    "days": 520
+   },
+   "full": {
+    "sum": -172523.11,
+    "sharpe-ann": -22.667,
+    "days": 1173
+   }
+  },
+  "m5-brk12-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -82215.77,
+    "sharpe-ann": -23.555,
+    "days": 653
+   },
+   "validation": {
+    "sum": -65497.99,
+    "sharpe-ann": -18.226,
+    "days": 520
+   },
+   "full": {
+    "sum": -147713.76,
+    "sharpe-ann": -20.681,
+    "days": 1173
+   }
+  },
+  "m5-brk48-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -31820.27,
+    "sharpe-ann": -8.62,
+    "days": 653
+   },
+   "validation": {
+    "sum": -25234.37,
+    "sharpe-ann": -6.693,
+    "days": 520
+   },
+   "full": {
+    "sum": -57054.64,
+    "sharpe-ann": -7.588,
+    "days": 1173
+   }
+  },
+  "m5-brk48-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -24642.67,
+    "sharpe-ann": -7.192,
+    "days": 653
+   },
+   "validation": {
+    "sum": -20014.49,
+    "sharpe-ann": -5.801,
+    "days": 520
+   },
+   "full": {
+    "sum": -44657.16,
+    "sharpe-ann": -6.449,
+    "days": 1173
+   }
+  },
+  "m5-brk288-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3268.52,
+    "sharpe-ann": -0.922,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4709.73,
+    "sharpe-ann": -1.302,
+    "days": 520
+   },
+   "full": {
+    "sum": -7978.25,
+    "sharpe-ann": -1.105,
+    "days": 1173
+   }
+  },
+  "m5-brk288-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1746.47,
+    "sharpe-ann": -0.533,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3866.55,
+    "sharpe-ann": -1.155,
+    "days": 520
+   },
+   "full": {
+    "sum": -5613.02,
+    "sharpe-ann": -0.841,
+    "days": 1173
+   }
+  },
+  "m5-brk1440-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -508.33,
+    "sharpe-ann": -0.135,
+    "days": 653
+   },
+   "validation": {
+    "sum": -838.01,
+    "sharpe-ann": -0.239,
+    "days": 520
+   },
+   "full": {
+    "sum": -1346.34,
+    "sharpe-ann": -0.185,
+    "days": 1173
+   }
+  },
+  "m5-brk1440-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -65.79,
+    "sharpe-ann": -0.019,
+    "days": 653
+   },
+   "validation": {
+    "sum": -716.97,
+    "sharpe-ann": -0.219,
+    "days": 520
+   },
+   "full": {
+    "sum": -782.76,
+    "sharpe-ann": -0.116,
+    "days": 1173
+   }
+  },
+  "m15-mom12-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -50915.01,
+    "sharpe-ann": -13.9,
+    "days": 653
+   },
+   "validation": {
+    "sum": -38589.53,
+    "sharpe-ann": -10.618,
+    "days": 520
+   },
+   "full": {
+    "sum": -89504.54,
+    "sharpe-ann": -12.189,
+    "days": 1173
+   }
+  },
+  "m15-mom12-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -34022.58,
+    "sharpe-ann": -10.442,
+    "days": 653
+   },
+   "validation": {
+    "sum": -27074.63,
+    "sharpe-ann": -8.343,
+    "days": 520
+   },
+   "full": {
+    "sum": -61097.21,
+    "sharpe-ann": -9.336,
+    "days": 1173
+   }
+  },
+  "m15-mom48-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -19510.38,
+    "sharpe-ann": -4.816,
+    "days": 653
+   },
+   "validation": {
+    "sum": -16401.46,
+    "sharpe-ann": -4.344,
+    "days": 520
+   },
+   "full": {
+    "sum": -35911.84,
+    "sharpe-ann": -4.574,
+    "days": 1173
+   }
+  },
+  "m15-mom48-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -12209.98,
+    "sharpe-ann": -3.51,
+    "days": 653
+   },
+   "validation": {
+    "sum": -10874.59,
+    "sharpe-ann": -3.193,
+    "days": 520
+   },
+   "full": {
+    "sum": -23084.57,
+    "sharpe-ann": -3.335,
+    "days": 1173
+   }
+  },
+  "m15-mom288-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1391.24,
+    "sharpe-ann": -0.367,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4860.06,
+    "sharpe-ann": -1.273,
+    "days": 520
+   },
+   "full": {
+    "sum": -6251.3,
+    "sharpe-ann": -0.815,
+    "days": 1173
+   }
+  },
+  "m15-mom288-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -434.36,
+    "sharpe-ann": -0.128,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2801.28,
+    "sharpe-ann": -0.81,
+    "days": 520
+   },
+   "full": {
+    "sum": -3235.64,
+    "sharpe-ann": -0.469,
+    "days": 1173
+   }
+  },
+  "m15-mom1440-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2120.93,
+    "sharpe-ann": -0.55,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2308.24,
+    "sharpe-ann": -0.625,
+    "days": 520
+   },
+   "full": {
+    "sum": -4429.17,
+    "sharpe-ann": -0.584,
+    "days": 1173
+   }
+  },
+  "m15-mom1440-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1251.96,
+    "sharpe-ann": -0.351,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1425.8,
+    "sharpe-ann": -0.419,
+    "days": 520
+   },
+   "full": {
+    "sum": -2677.76,
+    "sharpe-ann": -0.383,
+    "days": 1173
+   }
+  },
+  "m15-mr12-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -25791.67,
+    "sharpe-ann": -8.585,
+    "days": 653
+   },
+   "validation": {
+    "sum": -20287.7,
+    "sharpe-ann": -6.655,
+    "days": 520
+   },
+   "full": {
+    "sum": -46079.37,
+    "sharpe-ann": -7.557,
+    "days": 1173
+   }
+  },
+  "m15-mr12-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -9238.53,
+    "sharpe-ann": -3.818,
+    "days": 653
+   },
+   "validation": {
+    "sum": -7689.32,
+    "sharpe-ann": -3.156,
+    "days": 520
+   },
+   "full": {
+    "sum": -16927.85,
+    "sharpe-ann": -3.462,
+    "days": 1173
+   }
+  },
+  "m15-mr48-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -8198.92,
+    "sharpe-ann": -2.45,
+    "days": 653
+   },
+   "validation": {
+    "sum": -6394.33,
+    "sharpe-ann": -1.968,
+    "days": 520
+   },
+   "full": {
+    "sum": -14593.25,
+    "sharpe-ann": -2.202,
+    "days": 1173
+   }
+  },
+  "m15-mr48-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -4098.39,
+    "sharpe-ann": -1.469,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2048.56,
+    "sharpe-ann": -0.742,
+    "days": 520
+   },
+   "full": {
+    "sum": -6146.95,
+    "sharpe-ann": -1.101,
+    "days": 1173
+   }
+  },
+  "m15-mr288-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2587.73,
+    "sharpe-ann": -0.75,
+    "days": 653
+   },
+   "validation": {
+    "sum": -121.52,
+    "sharpe-ann": -0.035,
+    "days": 520
+   },
+   "full": {
+    "sum": -2709.25,
+    "sharpe-ann": -0.391,
+    "days": 1173
+   }
+  },
+  "m15-mr288-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1449.88,
+    "sharpe-ann": -0.517,
+    "days": 653
+   },
+   "validation": {
+    "sum": -634.51,
+    "sharpe-ann": -0.232,
+    "days": 520
+   },
+   "full": {
+    "sum": -2084.39,
+    "sharpe-ann": -0.374,
+    "days": 1173
+   }
+  },
+  "m15-mr1440-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2020.5,
+    "sharpe-ann": -0.547,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1080.7,
+    "sharpe-ann": -0.316,
+    "days": 520
+   },
+   "full": {
+    "sum": -3101.2,
+    "sharpe-ann": -0.435,
+    "days": 1173
+   }
+  },
+  "m15-mr1440-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -33.51,
+    "sharpe-ann": -0.011,
+    "days": 653
+   },
+   "validation": {
+    "sum": 982.62,
+    "sharpe-ann": 0.33,
+    "days": 520
+   },
+   "full": {
+    "sum": 949.11,
+    "sharpe-ann": 0.156,
+    "days": 1173
+   }
+  },
+  "m15-brk12-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -67813.27,
+    "sharpe-ann": -18.753,
+    "days": 653
+   },
+   "validation": {
+    "sum": -53102.59,
+    "sharpe-ann": -14.234,
+    "days": 520
+   },
+   "full": {
+    "sum": -120915.86,
+    "sharpe-ann": -16.321,
+    "days": 1173
+   }
+  },
+  "m15-brk12-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -58865.88,
+    "sharpe-ann": -17.955,
+    "days": 653
+   },
+   "validation": {
+    "sum": -44588.72,
+    "sharpe-ann": -13.083,
+    "days": 520
+   },
+   "full": {
+    "sum": -103454.6,
+    "sharpe-ann": -15.331,
+    "days": 1173
+   }
+  },
+  "m15-brk48-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -23731.49,
+    "sharpe-ann": -6.337,
+    "days": 653
+   },
+   "validation": {
+    "sum": -20958.38,
+    "sharpe-ann": -5.648,
+    "days": 520
+   },
+   "full": {
+    "sum": -44689.87,
+    "sharpe-ann": -5.957,
+    "days": 1173
+   }
+  },
+  "m15-brk48-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -20373.91,
+    "sharpe-ann": -5.917,
+    "days": 653
+   },
+   "validation": {
+    "sum": -17403.12,
+    "sharpe-ann": -5.332,
+    "days": 520
+   },
+   "full": {
+    "sum": -37777.03,
+    "sharpe-ann": -5.61,
+    "days": 1173
+   }
+  },
+  "m15-brk288-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1957.78,
+    "sharpe-ann": -0.553,
+    "days": 653
+   },
+   "validation": {
+    "sum": -5149.55,
+    "sharpe-ann": -1.43,
+    "days": 520
+   },
+   "full": {
+    "sum": -7107.33,
+    "sharpe-ann": -0.987,
+    "days": 1173
+   }
+  },
+  "m15-brk288-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -534.62,
+    "sharpe-ann": -0.165,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4025.74,
+    "sharpe-ann": -1.212,
+    "days": 520
+   },
+   "full": {
+    "sum": -4560.36,
+    "sharpe-ann": -0.688,
+    "days": 1173
+   }
+  },
+  "m15-brk1440-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -507.82,
+    "sharpe-ann": -0.134,
+    "days": 653
+   },
+   "validation": {
+    "sum": -615.23,
+    "sharpe-ann": -0.177,
+    "days": 520
+   },
+   "full": {
+    "sum": -1123.05,
+    "sharpe-ann": -0.154,
+    "days": 1173
+   }
+  },
+  "m15-brk1440-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -132.0,
+    "sharpe-ann": -0.038,
+    "days": 653
+   },
+   "validation": {
+    "sum": -805.65,
+    "sharpe-ann": -0.246,
+    "days": 520
+   },
+   "full": {
+    "sum": -937.65,
+    "sharpe-ann": -0.138,
+    "days": 1173
+   }
+  },
+  "h1-mom12-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -31266.49,
+    "sharpe-ann": -8.548,
+    "days": 653
+   },
+   "validation": {
+    "sum": -22907.15,
+    "sharpe-ann": -6.02,
+    "days": 520
+   },
+   "full": {
+    "sum": -54173.64,
+    "sharpe-ann": -7.193,
+    "days": 1173
+   }
+  },
+  "h1-mom12-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -21747.47,
+    "sharpe-ann": -6.664,
+    "days": 653
+   },
+   "validation": {
+    "sum": -17311.61,
+    "sharpe-ann": -5.222,
+    "days": 520
+   },
+   "full": {
+    "sum": -39059.08,
+    "sharpe-ann": -5.894,
+    "days": 1173
+   }
+  },
+  "h1-mom48-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -12147.24,
+    "sharpe-ann": -3.153,
+    "days": 653
+   },
+   "validation": {
+    "sum": -13237.82,
+    "sharpe-ann": -3.426,
+    "days": 520
+   },
+   "full": {
+    "sum": -25385.06,
+    "sharpe-ann": -3.267,
+    "days": 1173
+   }
+  },
+  "h1-mom48-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -7289.86,
+    "sharpe-ann": -2.27,
+    "days": 653
+   },
+   "validation": {
+    "sum": -8752.71,
+    "sharpe-ann": -2.601,
+    "days": 520
+   },
+   "full": {
+    "sum": -16042.57,
+    "sharpe-ann": -2.415,
+    "days": 1173
+   }
+  },
+  "h1-mom288-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": 541.15,
+    "sharpe-ann": 0.144,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4607.82,
+    "sharpe-ann": -1.196,
+    "days": 520
+   },
+   "full": {
+    "sum": -4066.67,
+    "sharpe-ann": -0.53,
+    "days": 1173
+   }
+  },
+  "h1-mom288-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -64.17,
+    "sharpe-ann": -0.019,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3296.87,
+    "sharpe-ann": -0.938,
+    "days": 520
+   },
+   "full": {
+    "sum": -3361.04,
+    "sharpe-ann": -0.48,
+    "days": 1173
+   }
+  },
+  "h1-mom1440-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2060.94,
+    "sharpe-ann": -0.533,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2718.75,
+    "sharpe-ann": -0.729,
+    "days": 520
+   },
+   "full": {
+    "sum": -4779.69,
+    "sharpe-ann": -0.627,
+    "days": 1173
+   }
+  },
+  "h1-mom1440-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1844.13,
+    "sharpe-ann": -0.514,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1813.2,
+    "sharpe-ann": -0.538,
+    "days": 520
+   },
+   "full": {
+    "sum": -3657.33,
+    "sharpe-ann": -0.524,
+    "days": 1173
+   }
+  },
+  "h1-mr12-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -9461.01,
+    "sharpe-ann": -3.095,
+    "days": 653
+   },
+   "validation": {
+    "sum": -6517.72,
+    "sharpe-ann": -2.196,
+    "days": 520
+   },
+   "full": {
+    "sum": -15978.73,
+    "sharpe-ann": -2.639,
+    "days": 1173
+   }
+  },
+  "h1-mr12-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3230.79,
+    "sharpe-ann": -1.498,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3376.68,
+    "sharpe-ann": -1.46,
+    "days": 520
+   },
+   "full": {
+    "sum": -6607.47,
+    "sharpe-ann": -1.462,
+    "days": 1173
+   }
+  },
+  "h1-mr48-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -7080.18,
+    "sharpe-ann": -2.098,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2153.87,
+    "sharpe-ann": -0.619,
+    "days": 520
+   },
+   "full": {
+    "sum": -9234.05,
+    "sharpe-ann": -1.335,
+    "days": 1173
+   }
+  },
+  "h1-mr48-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3898.06,
+    "sharpe-ann": -1.457,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1372.11,
+    "sharpe-ann": -0.508,
+    "days": 520
+   },
+   "full": {
+    "sum": -5270.17,
+    "sharpe-ann": -0.973,
+    "days": 1173
+   }
+  },
+  "h1-mr288-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3022.19,
+    "sharpe-ann": -0.858,
+    "days": 653
+   },
+   "validation": {
+    "sum": 375.77,
+    "sharpe-ann": 0.11,
+    "days": 520
+   },
+   "full": {
+    "sum": -2646.42,
+    "sharpe-ann": -0.38,
+    "days": 1173
+   }
+  },
+  "h1-mr288-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -647.87,
+    "sharpe-ann": -0.239,
+    "days": 653
+   },
+   "validation": {
+    "sum": -166.62,
+    "sharpe-ann": -0.065,
+    "days": 520
+   },
+   "full": {
+    "sum": -814.49,
+    "sharpe-ann": -0.154,
+    "days": 1173
+   }
+  },
+  "h1-mr1440-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2010.72,
+    "sharpe-ann": -0.547,
+    "days": 653
+   },
+   "validation": {
+    "sum": -421.42,
+    "sharpe-ann": -0.122,
+    "days": 520
+   },
+   "full": {
+    "sum": -2432.14,
+    "sharpe-ann": -0.34,
+    "days": 1173
+   }
+  },
+  "h1-mr1440-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -231.35,
+    "sharpe-ann": -0.075,
+    "days": 653
+   },
+   "validation": {
+    "sum": 964.17,
+    "sharpe-ann": 0.331,
+    "days": 520
+   },
+   "full": {
+    "sum": 732.82,
+    "sharpe-ann": 0.122,
+    "days": 1173
+   }
+  },
+  "h1-brk12-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -34098.8,
+    "sharpe-ann": -9.44,
+    "days": 653
+   },
+   "validation": {
+    "sum": -25467.3,
+    "sharpe-ann": -7.335,
+    "days": 520
+   },
+   "full": {
+    "sum": -59566.1,
+    "sharpe-ann": -8.37,
+    "days": 1173
+   }
+  },
+  "h1-brk12-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -27126.09,
+    "sharpe-ann": -8.888,
+    "days": 653
+   },
+   "validation": {
+    "sum": -21023.18,
+    "sharpe-ann": -7.345,
+    "days": 520
+   },
+   "full": {
+    "sum": -48149.27,
+    "sharpe-ann": -8.114,
+    "days": 1173
+   }
+  },
+  "h1-brk48-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -15887.06,
+    "sharpe-ann": -4.196,
+    "days": 653
+   },
+   "validation": {
+    "sum": -15994.84,
+    "sharpe-ann": -4.336,
+    "days": 520
+   },
+   "full": {
+    "sum": -31881.9,
+    "sharpe-ann": -4.241,
+    "days": 1173
+   }
+  },
+  "h1-brk48-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -12137.56,
+    "sharpe-ann": -3.945,
+    "days": 653
+   },
+   "validation": {
+    "sum": -13122.84,
+    "sharpe-ann": -4.461,
+    "days": 520
+   },
+   "full": {
+    "sum": -25260.4,
+    "sharpe-ann": -4.176,
+    "days": 1173
+   }
+  },
+  "h1-brk288-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1393.3,
+    "sharpe-ann": -0.385,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4077.29,
+    "sharpe-ann": -1.124,
+    "days": 520
+   },
+   "full": {
+    "sum": -5470.59,
+    "sharpe-ann": -0.75,
+    "days": 1173
+   }
+  },
+  "h1-brk288-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1443.37,
+    "sharpe-ann": -0.432,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3750.05,
+    "sharpe-ann": -1.154,
+    "days": 520
+   },
+   "full": {
+    "sum": -5193.42,
+    "sharpe-ann": -0.784,
+    "days": 1173
+   }
+  },
+  "h1-brk1440-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -911.34,
+    "sharpe-ann": -0.241,
+    "days": 653
+   },
+   "validation": {
+    "sum": -909.13,
+    "sharpe-ann": -0.261,
+    "days": 520
+   },
+   "full": {
+    "sum": -1820.47,
+    "sharpe-ann": -0.25,
+    "days": 1173
+   }
+  },
+  "h1-brk1440-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -598.18,
+    "sharpe-ann": -0.172,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2680.6,
+    "sharpe-ann": -0.835,
+    "days": 520
+   },
+   "full": {
+    "sum": -3278.78,
+    "sharpe-ann": -0.489,
+    "days": 1173
+   }
+  },
+  "h4-mom12-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3155.44,
+    "sharpe-ann": -0.893,
+    "days": 653
+   },
+   "validation": {
+    "sum": -9118.75,
+    "sharpe-ann": -2.545,
+    "days": 520
+   },
+   "full": {
+    "sum": -12274.19,
+    "sharpe-ann": -1.708,
+    "days": 1173
+   }
+  },
+  "h4-mom12-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1289.99,
+    "sharpe-ann": -0.418,
+    "days": 653
+   },
+   "validation": {
+    "sum": -7130.68,
+    "sharpe-ann": -2.329,
+    "days": 520
+   },
+   "full": {
+    "sum": -8420.67,
+    "sharpe-ann": -1.359,
+    "days": 1173
+   }
+  },
+  "h4-mom48-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -6169.8,
+    "sharpe-ann": -1.846,
+    "days": 653
+   },
+   "validation": {
+    "sum": -6872.35,
+    "sharpe-ann": -1.966,
+    "days": 520
+   },
+   "full": {
+    "sum": -13042.15,
+    "sharpe-ann": -1.889,
+    "days": 1173
+   }
+  },
+  "h4-mom48-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -4227.34,
+    "sharpe-ann": -1.465,
+    "days": 653
+   },
+   "validation": {
+    "sum": -5261.71,
+    "sharpe-ann": -1.789,
+    "days": 520
+   },
+   "full": {
+    "sum": -9489.05,
+    "sharpe-ann": -1.616,
+    "days": 1173
+   }
+  },
+  "h4-mom288-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": 744.56,
+    "sharpe-ann": 0.2,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1506.01,
+    "sharpe-ann": -0.41,
+    "days": 520
+   },
+   "full": {
+    "sum": -761.45,
+    "sharpe-ann": -0.102,
+    "days": 1173
+   }
+  },
+  "h4-mom288-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -697.15,
+    "sharpe-ann": -0.202,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1423.98,
+    "sharpe-ann": -0.409,
+    "days": 520
+   },
+   "full": {
+    "sum": -2121.13,
+    "sharpe-ann": -0.304,
+    "days": 1173
+   }
+  },
+  "h4-mom1440-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2314.07,
+    "sharpe-ann": -0.592,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2578.84,
+    "sharpe-ann": -0.697,
+    "days": 520
+   },
+   "full": {
+    "sum": -4892.91,
+    "sharpe-ann": -0.641,
+    "days": 1173
+   }
+  },
+  "h4-mom1440-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -2099.36,
+    "sharpe-ann": -0.593,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1512.81,
+    "sharpe-ann": -0.451,
+    "days": 520
+   },
+   "full": {
+    "sum": -3612.17,
+    "sharpe-ann": -0.522,
+    "days": 1173
+   }
+  },
+  "h4-mr12-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -6790.86,
+    "sharpe-ann": -2.118,
+    "days": 653
+   },
+   "validation": {
+    "sum": 1878.74,
+    "sharpe-ann": 0.605,
+    "days": 520
+   },
+   "full": {
+    "sum": -4912.12,
+    "sharpe-ann": -0.772,
+    "days": 1173
+   }
+  },
+  "h4-mr12-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -4999.08,
+    "sharpe-ann": -2.217,
+    "days": 653
+   },
+   "validation": {
+    "sum": 916.91,
+    "sharpe-ann": 0.49,
+    "days": 520
+   },
+   "full": {
+    "sum": -4082.17,
+    "sharpe-ann": -0.986,
+    "days": 1173
+   }
+  },
+  "h4-mr48-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -7449.44,
+    "sharpe-ann": -2.453,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1421.59,
+    "sharpe-ann": -0.471,
+    "days": 520
+   },
+   "full": {
+    "sum": -8871.03,
+    "sharpe-ann": -1.454,
+    "days": 1173
+   }
+  },
+  "h4-mr48-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3973.95,
+    "sharpe-ann": -1.687,
+    "days": 653
+   },
+   "validation": {
+    "sum": -853.59,
+    "sharpe-ann": -0.426,
+    "days": 520
+   },
+   "full": {
+    "sum": -4827.54,
+    "sharpe-ann": -1.106,
+    "days": 1173
+   }
+  },
+  "h4-mr288-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3925.75,
+    "sharpe-ann": -1.149,
+    "days": 653
+   },
+   "validation": {
+    "sum": -786.73,
+    "sharpe-ann": -0.24,
+    "days": 520
+   },
+   "full": {
+    "sum": -4712.48,
+    "sharpe-ann": -0.701,
+    "days": 1173
+   }
+  },
+  "h4-mr288-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1891.96,
+    "sharpe-ann": -0.706,
+    "days": 653
+   },
+   "validation": {
+    "sum": 1622.15,
+    "sharpe-ann": 0.675,
+    "days": 520
+   },
+   "full": {
+    "sum": -269.81,
+    "sharpe-ann": -0.053,
+    "days": 1173
+   }
+  },
+  "h4-mr1440-0.5": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1119.02,
+    "sharpe-ann": -0.304,
+    "days": 653
+   },
+   "validation": {
+    "sum": 512.37,
+    "sharpe-ann": 0.148,
+    "days": 520
+   },
+   "full": {
+    "sum": -606.65,
+    "sharpe-ann": -0.085,
+    "days": 1173
+   }
+  },
+  "h4-mr1440-1.0": {
+   "kind": "fixed",
+   "design": {
+    "sum": -401.57,
+    "sharpe-ann": -0.134,
+    "days": 653
+   },
+   "validation": {
+    "sum": 1466.38,
+    "sharpe-ann": 0.502,
+    "days": 520
+   },
+   "full": {
+    "sum": 1064.81,
+    "sharpe-ann": 0.179,
+    "days": 1173
+   }
+  },
+  "h4-brk12-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3436.83,
+    "sharpe-ann": -0.951,
+    "days": 653
+   },
+   "validation": {
+    "sum": -9110.91,
+    "sharpe-ann": -2.736,
+    "days": 520
+   },
+   "full": {
+    "sum": -12547.74,
+    "sharpe-ann": -1.798,
+    "days": 1173
+   }
+  },
+  "h4-brk12-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3419.01,
+    "sharpe-ann": -1.126,
+    "days": 653
+   },
+   "validation": {
+    "sum": -8745.13,
+    "sharpe-ann": -3.038,
+    "days": 520
+   },
+   "full": {
+    "sum": -12164.14,
+    "sharpe-ann": -2.044,
+    "days": 1173
+   }
+  },
+  "h4-brk48-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -3717.55,
+    "sharpe-ann": -1.119,
+    "days": 653
+   },
+   "validation": {
+    "sum": -8604.33,
+    "sharpe-ann": -2.602,
+    "days": 520
+   },
+   "full": {
+    "sum": -12321.88,
+    "sharpe-ann": -1.844,
+    "days": 1173
+   }
+  },
+  "h4-brk48-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1194.27,
+    "sharpe-ann": -0.475,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4263.13,
+    "sharpe-ann": -1.847,
+    "days": 520
+   },
+   "full": {
+    "sum": -5457.4,
+    "sharpe-ann": -1.128,
+    "days": 1173
+   }
+  },
+  "h4-brk288-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -655.23,
+    "sharpe-ann": -0.182,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3491.83,
+    "sharpe-ann": -0.994,
+    "days": 520
+   },
+   "full": {
+    "sum": -4147.06,
+    "sharpe-ann": -0.58,
+    "days": 1173
+   }
+  },
+  "h4-brk288-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1072.7,
+    "sharpe-ann": -0.375,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1705.75,
+    "sharpe-ann": -0.59,
+    "days": 520
+   },
+   "full": {
+    "sum": -2778.45,
+    "sharpe-ann": -0.48,
+    "days": 1173
+   }
+  },
+  "h4-brk1440-0.6": {
+   "kind": "fixed",
+   "design": {
+    "sum": -1458.75,
+    "sharpe-ann": -0.381,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1971.78,
+    "sharpe-ann": -0.571,
+    "days": 520
+   },
+   "full": {
+    "sum": -3430.53,
+    "sharpe-ann": -0.47,
+    "days": 1173
+   }
+  },
+  "h4-brk1440-0.9": {
+   "kind": "fixed",
+   "design": {
+    "sum": -133.36,
+    "sharpe-ann": -0.04,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1795.19,
+    "sharpe-ann": -0.582,
+    "days": 520
+   },
+   "full": {
+    "sum": -1928.55,
+    "sharpe-ann": -0.3,
+    "days": 1173
+   }
+  },
+  "gate-N1-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -1040.2,
+    "sharpe-ann": -0.383,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1416.62,
+    "sharpe-ann": -0.683,
+    "days": 520
+   },
+   "full": {
+    "sum": -2456.82,
+    "sharpe-ann": -0.513,
+    "days": 1173
+   }
+  },
+  "race-N1-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -6069.06,
+    "sharpe-ann": -1.857,
+    "days": 653
+   },
+   "validation": {
+    "sum": -5806.55,
+    "sharpe-ann": -2.096,
+    "days": 520
+   },
+   "full": {
+    "sum": -11875.61,
+    "sharpe-ann": -1.966,
+    "days": 1173
+   }
+  },
+  "race-N1-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -466.3,
+    "sharpe-ann": -0.142,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4164.35,
+    "sharpe-ann": -1.509,
+    "days": 520
+   },
+   "full": {
+    "sum": -4630.65,
+    "sharpe-ann": -0.766,
+    "days": 1173
+   }
+  },
+  "greedy-N5-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 471.73,
+    "sharpe-ann": 0.143,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1097.49,
+    "sharpe-ann": -0.413,
+    "days": 520
+   },
+   "full": {
+    "sum": -625.76,
+    "sharpe-ann": -0.105,
+    "days": 1173
+   }
+  },
+  "gate-N1-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 1591.86,
+    "sharpe-ann": 0.539,
+    "days": 653
+   },
+   "validation": {
+    "sum": 693.78,
+    "sharpe-ann": 0.264,
+    "days": 520
+   },
+   "full": {
+    "sum": 2285.64,
+    "sharpe-ann": 0.408,
+    "days": 1173
+   }
+  },
+  "greedy-N20-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -1702.05,
+    "sharpe-ann": -0.602,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2736.18,
+    "sharpe-ann": -1.024,
+    "days": 520
+   },
+   "full": {
+    "sum": -4438.23,
+    "sharpe-ann": -0.804,
+    "days": 1173
+   }
+  },
+  "gate-N5-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 1548.54,
+    "sharpe-ann": 0.484,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1711.19,
+    "sharpe-ann": -0.675,
+    "days": 520
+   },
+   "full": {
+    "sum": -162.65,
+    "sharpe-ann": -0.028,
+    "days": 1173
+   }
+  },
+  "gate-N5-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -462.69,
+    "sharpe-ann": -0.167,
+    "days": 653
+   },
+   "validation": {
+    "sum": 704.28,
+    "sharpe-ann": 0.331,
+    "days": 520
+   },
+   "full": {
+    "sum": 241.59,
+    "sharpe-ann": 0.049,
+    "days": 1173
+   }
+  },
+  "greedy-N20-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 1572.16,
+    "sharpe-ann": 0.472,
+    "days": 653
+   },
+   "validation": {
+    "sum": 76.41,
+    "sharpe-ann": 0.028,
+    "days": 520
+   },
+   "full": {
+    "sum": 1648.57,
+    "sharpe-ann": 0.273,
+    "days": 1173
+   }
+  },
+  "race-N20-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -1956.77,
+    "sharpe-ann": -0.649,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4030.03,
+    "sharpe-ann": -1.514,
+    "days": 520
+   },
+   "full": {
+    "sum": -5986.8,
+    "sharpe-ann": -1.053,
+    "days": 1173
+   }
+  },
+  "greedy-N5-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -3355.03,
+    "sharpe-ann": -1.124,
+    "days": 653
+   },
+   "validation": {
+    "sum": -7047.37,
+    "sharpe-ann": -2.671,
+    "days": 520
+   },
+   "full": {
+    "sum": -10402.4,
+    "sharpe-ann": -1.844,
+    "days": 1173
+   }
+  },
+  "race-N5-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -3326.11,
+    "sharpe-ann": -1.041,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4204.5,
+    "sharpe-ann": -1.567,
+    "days": 520
+   },
+   "full": {
+    "sum": -7530.61,
+    "sharpe-ann": -1.28,
+    "days": 1173
+   }
+  },
+  "race-N20-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -1139.18,
+    "sharpe-ann": -0.341,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2664.07,
+    "sharpe-ann": -0.991,
+    "days": 520
+   },
+   "full": {
+    "sum": -3803.25,
+    "sharpe-ann": -0.63,
+    "days": 1173
+   }
+  },
+  "race-N20-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 2865.56,
+    "sharpe-ann": 0.815,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3458.59,
+    "sharpe-ann": -1.21,
+    "days": 520
+   },
+   "full": {
+    "sum": -593.03,
+    "sharpe-ann": -0.093,
+    "days": 1173
+   }
+  },
+  "race-N1-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 673.97,
+    "sharpe-ann": 0.2,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3547.15,
+    "sharpe-ann": -1.266,
+    "days": 520
+   },
+   "full": {
+    "sum": -2873.18,
+    "sharpe-ann": -0.465,
+    "days": 1173
+   }
+  },
+  "gate-N20-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -925.56,
+    "sharpe-ann": -0.456,
+    "days": 653
+   },
+   "validation": {
+    "sum": -926.3,
+    "sharpe-ann": -0.863,
+    "days": 520
+   },
+   "full": {
+    "sum": -1851.86,
+    "sharpe-ann": -0.586,
+    "days": 1173
+   }
+  },
+  "greedy-N5-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -251.33,
+    "sharpe-ann": -0.084,
+    "days": 653
+   },
+   "validation": {
+    "sum": -2437.68,
+    "sharpe-ann": -0.961,
+    "days": 520
+   },
+   "full": {
+    "sum": -2689.01,
+    "sharpe-ann": -0.485,
+    "days": 1173
+   }
+  },
+  "race-N5-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 577.21,
+    "sharpe-ann": 0.173,
+    "days": 653
+   },
+   "validation": {
+    "sum": -3788.65,
+    "sharpe-ann": -1.347,
+    "days": 520
+   },
+   "full": {
+    "sum": -3211.44,
+    "sharpe-ann": -0.521,
+    "days": 1173
+   }
+  },
+  "greedy-N1-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -4981.51,
+    "sharpe-ann": -1.655,
+    "days": 653
+   },
+   "validation": {
+    "sum": -5294.13,
+    "sharpe-ann": -2.027,
+    "days": 520
+   },
+   "full": {
+    "sum": -10275.64,
+    "sharpe-ann": -1.826,
+    "days": 1173
+   }
+  },
+  "greedy-N1-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -1390.02,
+    "sharpe-ann": -0.456,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4494.23,
+    "sharpe-ann": -1.673,
+    "days": 520
+   },
+   "full": {
+    "sum": -5884.25,
+    "sharpe-ann": -1.024,
+    "days": 1173
+   }
+  },
+  "gate-N5-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 2212.55,
+    "sharpe-ann": 0.736,
+    "days": 653
+   },
+   "validation": {
+    "sum": 267.17,
+    "sharpe-ann": 0.096,
+    "days": 520
+   },
+   "full": {
+    "sum": 2479.72,
+    "sharpe-ann": 0.427,
+    "days": 1173
+   }
+  },
+  "gate-N1-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -726.61,
+    "sharpe-ann": -0.229,
+    "days": 653
+   },
+   "validation": {
+    "sum": 7.19,
+    "sharpe-ann": 0.003,
+    "days": 520
+   },
+   "full": {
+    "sum": -719.42,
+    "sharpe-ann": -0.128,
+    "days": 1173
+   }
+  },
+  "race-N5-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 1747.69,
+    "sharpe-ann": 0.551,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4116.41,
+    "sharpe-ann": -1.513,
+    "days": 520
+   },
+   "full": {
+    "sum": -2368.72,
+    "sharpe-ann": -0.401,
+    "days": 1173
+   }
+  },
+  "greedy-N20-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -1747.17,
+    "sharpe-ann": -0.556,
+    "days": 653
+   },
+   "validation": {
+    "sum": -4096.86,
+    "sharpe-ann": -1.512,
+    "days": 520
+   },
+   "full": {
+    "sum": -5844.03,
+    "sharpe-ann": -0.998,
+    "days": 1173
+   }
+  },
+  "greedy-N1-W120": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -679.06,
+    "sharpe-ann": -0.217,
+    "days": 653
+   },
+   "validation": {
+    "sum": -1436.72,
+    "sharpe-ann": -0.544,
+    "days": 520
+   },
+   "full": {
+    "sum": -2115.78,
+    "sharpe-ann": -0.367,
+    "days": 1173
+   }
+  },
+  "gate-N20-W60": {
+   "kind": "adaptive",
+   "design": {
+    "sum": 720.62,
+    "sharpe-ann": 0.261,
+    "days": 653
+   },
+   "validation": {
+    "sum": -201.43,
+    "sharpe-ann": -0.101,
+    "days": 520
+   },
+   "full": {
+    "sum": 519.19,
+    "sharpe-ann": 0.109,
+    "days": 1173
+   }
+  },
+  "gate-N20-W20": {
+   "kind": "adaptive",
+   "design": {
+    "sum": -443.1,
+    "sharpe-ann": -0.172,
+    "days": 653
+   },
+   "validation": {
+    "sum": 992.11,
+    "sharpe-ann": 0.454,
+    "days": 520
+   },
+   "full": {
+    "sum": 549.01,
+    "sharpe-ann": 0.115,
+    "days": 1173
+   }
+  }
+ },
+ "meta": {
+  "gate-N1-W120": {
+   "variant": 7,
+   "N": 1,
+   "W": 120,
+   "method": "gate",
+   "switches": [
+    27,
+    34
+   ],
+   "heals": [
+    27,
+    32
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    34.85,
+    48.38
+   ]
+  },
+  "race-N1-W20": {
+   "variant": 2,
+   "N": 1,
+   "W": 20,
+   "method": "race",
+   "switches": [
+    404,
+    387
+   ],
+   "heals": [
+    198,
+    182
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    381.65,
+    445.5
+   ]
+  },
+  "race-N1-W60": {
+   "variant": 5,
+   "N": 1,
+   "W": 60,
+   "method": "race",
+   "switches": [
+    321,
+    304
+   ],
+   "heals": [
+    146,
+    134
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    264.35,
+    298.12
+   ]
+  },
+  "greedy-N5-W120": {
+   "variant": 15,
+   "N": 5,
+   "W": 120,
+   "method": "greedy",
+   "switches": [
+    74,
+    83
+   ],
+   "heals": [
+    40,
+    28
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    236,
+    238
+   ],
+   "switch-cost": [
+    62.05,
+    54
+   ]
+  },
+  "gate-N1-W60": {
+   "variant": 4,
+   "N": 1,
+   "W": 60,
+   "method": "gate",
+   "switches": [
+    25,
+    28
+   ],
+   "heals": [
+    19,
+    25
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    27.2,
+    37.12
+   ]
+  },
+  "greedy-N20-W20": {
+   "variant": 18,
+   "N": 20,
+   "W": 20,
+   "method": "greedy",
+   "switches": [
+    38,
+    44
+   ],
+   "heals": [
+    23,
+    18
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    61,
+    63
+   ],
+   "switch-cost": [
+    43.35,
+    43.88
+   ]
+  },
+  "gate-N5-W20": {
+   "variant": 10,
+   "N": 5,
+   "W": 20,
+   "method": "gate",
+   "switches": [
+    35,
+    18
+   ],
+   "heals": [
+    25,
+    11
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    236,
+    239
+   ],
+   "switch-cost": [
+    39.95,
+    15.75
+   ]
+  },
+  "gate-N5-W120": {
+   "variant": 16,
+   "N": 5,
+   "W": 120,
+   "method": "gate",
+   "switches": [
+    13,
+    11
+   ],
+   "heals": [
+    12,
+    8
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    237,
+    237
+   ],
+   "switch-cost": [
+    13.6,
+    11.25
+   ]
+  },
+  "greedy-N20-W120": {
+   "variant": 24,
+   "N": 20,
+   "W": 120,
+   "method": "greedy",
+   "switches": [
+    39,
+    32
+   ],
+   "heals": [
+    9,
+    14
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    61,
+    65
+   ],
+   "switch-cost": [
+    19.55,
+    20.25
+   ]
+  },
+  "race-N20-W20": {
+   "variant": 20,
+   "N": 20,
+   "W": 20,
+   "method": "race",
+   "switches": [
+    39,
+    41
+   ],
+   "heals": [
+    21,
+    22
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    61,
+    63
+   ],
+   "switch-cost": [
+    45.05,
+    60.75
+   ]
+  },
+  "greedy-N5-W20": {
+   "variant": 9,
+   "N": 5,
+   "W": 20,
+   "method": "greedy",
+   "switches": [
+    129,
+    138
+   ],
+   "heals": [
+    62,
+    64
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    236,
+    239
+   ],
+   "switch-cost": [
+    118.15,
+    155.25
+   ]
+  },
+  "race-N5-W20": {
+   "variant": 11,
+   "N": 5,
+   "W": 20,
+   "method": "race",
+   "switches": [
+    132,
+    128
+   ],
+   "heals": [
+    59,
+    61
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    236,
+    236
+   ],
+   "switch-cost": [
+    107.95,
+    173.25
+   ]
+  },
+  "race-N20-W60": {
+   "variant": 23,
+   "N": 20,
+   "W": 60,
+   "method": "race",
+   "switches": [
+    35,
+    37
+   ],
+   "heals": [
+    22,
+    15
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    62,
+    63
+   ],
+   "switch-cost": [
+    33.15,
+    31.5
+   ]
+  },
+  "race-N20-W120": {
+   "variant": 26,
+   "N": 20,
+   "W": 120,
+   "method": "race",
+   "switches": [
+    33,
+    28
+   ],
+   "heals": [
+    11,
+    16
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    60,
+    62
+   ],
+   "switch-cost": [
+    22.95,
+    31.5
+   ]
+  },
+  "race-N1-W120": {
+   "variant": 8,
+   "N": 1,
+   "W": 120,
+   "method": "race",
+   "switches": [
+    294,
+    273
+   ],
+   "heals": [
+    147,
+    119
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    228.65,
+    249.75
+   ]
+  },
+  "gate-N20-W120": {
+   "variant": 25,
+   "N": 20,
+   "W": 120,
+   "method": "gate",
+   "switches": [
+    6,
+    10
+   ],
+   "heals": [
+    6,
+    10
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    60,
+    61
+   ],
+   "switch-cost": [
+    6.8,
+    18
+   ]
+  },
+  "greedy-N5-W60": {
+   "variant": 12,
+   "N": 5,
+   "W": 60,
+   "method": "greedy",
+   "switches": [
+    91,
+    94
+   ],
+   "heals": [
+    51,
+    44
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    236,
+    238
+   ],
+   "switch-cost": [
+    100.3,
+    92.25
+   ]
+  },
+  "race-N5-W120": {
+   "variant": 17,
+   "N": 5,
+   "W": 120,
+   "method": "race",
+   "switches": [
+    94,
+    91
+   ],
+   "heals": [
+    46,
+    41
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    238,
+    237
+   ],
+   "switch-cost": [
+    72.25,
+    84.38
+   ]
+  },
+  "greedy-N1-W20": {
+   "variant": 0,
+   "N": 1,
+   "W": 20,
+   "method": "greedy",
+   "switches": [
+    397,
+    392
+   ],
+   "heals": [
+    196,
+    188
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    362.95,
+    429.75
+   ]
+  },
+  "greedy-N1-W60": {
+   "variant": 3,
+   "N": 1,
+   "W": 60,
+   "method": "greedy",
+   "switches": [
+    264,
+    235
+   ],
+   "heals": [
+    139,
+    115
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    260.1,
+    250.88
+   ]
+  },
+  "gate-N5-W60": {
+   "variant": 13,
+   "N": 5,
+   "W": 60,
+   "method": "gate",
+   "switches": [
+    15,
+    14
+   ],
+   "heals": [
+    8,
+    8
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    238,
+    239
+   ],
+   "switch-cost": [
+    9.35,
+    11.25
+   ]
+  },
+  "gate-N1-W20": {
+   "variant": 1,
+   "N": 1,
+   "W": 20,
+   "method": "gate",
+   "switches": [
+    64,
+    60
+   ],
+   "heals": [
+    55,
+    52
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    85.85,
+    91.12
+   ]
+  },
+  "race-N5-W60": {
+   "variant": 14,
+   "N": 5,
+   "W": 60,
+   "method": "race",
+   "switches": [
+    104,
+    95
+   ],
+   "heals": [
+    46,
+    36
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    237,
+    237
+   ],
+   "switch-cost": [
+    100.3,
+    94.5
+   ]
+  },
+  "greedy-N20-W60": {
+   "variant": 21,
+   "N": 20,
+   "W": 60,
+   "method": "greedy",
+   "switches": [
+    38,
+    36
+   ],
+   "heals": [
+    21,
+    17
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    62,
+    62
+   ],
+   "switch-cost": [
+    31.45,
+    40.5
+   ]
+  },
+  "greedy-N1-W120": {
+   "variant": 6,
+   "N": 1,
+   "W": 120,
+   "method": "greedy",
+   "switches": [
+    200,
+    200
+   ],
+   "heals": [
+    114,
+    91
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    1173,
+    1173
+   ],
+   "switch-cost": [
+    183.6,
+    200.25
+   ]
+  },
+  "gate-N20-W60": {
+   "variant": 22,
+   "N": 20,
+   "W": 60,
+   "method": "gate",
+   "switches": [
+    9,
+    6
+   ],
+   "heals": [
+    6,
+    3
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    60,
+    65
+   ],
+   "switch-cost": [
+    12.75,
+    7.88
+   ]
+  },
+  "gate-N20-W20": {
+   "variant": 19,
+   "N": 20,
+   "W": 20,
+   "method": "gate",
+   "switches": [
+    15,
+    11
+   ],
+   "heals": [
+    12,
+    6
+   ],
+   "swap-fail": [
+    0,
+    0
+   ],
+   "decisions": [
+    62,
+    66
+   ],
+   "switch-cost": [
+    16.15,
+    21.38
+   ]
+  }
+ }
+}

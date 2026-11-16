@@ -1,0 +1,43 @@
+V5 variant 0 greedy N=1 W=20 sums=(-5330.9 -4944.9) switches=(397 392) heals=(196 188) fails=(0 0) ms=53083
+V5 variant 8 race N=1 W=120 sums=(-1741.1 -1132.2) switches=(294 273) heals=(147 119) fails=(0 0) ms=259632
+V5 variant 16 gate N=5 W=120 sums=(-452.3 693.8) switches=(13 11) heals=(12 8) fails=(0 0) ms=43551
+V5 variant 24 greedy N=20 W=120 sums=(1358.4 290.1) switches=(39 32) heals=(9 14) fails=(0 0) ms=4967
+V5_RUN_OK
+METER rc=0 wall=537.4s cpu=377.9s cores=0.70 peak_rss=1405MB
+V5 variant 1 gate N=1 W=20 sums=(-941.7 222.3) switches=(64 60) heals=(55 52) fails=(0 0) ms=88592
+V5 variant 9 greedy N=5 W=20 sums=(-3359.0 -7043.6) switches=(129 138) heals=(62 64) fails=(0 0) ms=11328
+V5 variant 17 race N=5 W=120 sums=(-833.4 -2378.1) switches=(94 91) heals=(46 41) fails=(0 0) ms=51503
+V5 variant 25 gate N=20 W=120 sums=(-444.7 -1407.2) switches=(6 10) heals=(6 10) fails=(0 0) ms=9319
+V5_RUN_OK
+METER rc=0 wall=189.4s cpu=180.8s cores=0.95 peak_rss=706MB
+V5 variant 2 race N=1 W=20 sums=(-6122.2 -5753.7) switches=(404 387) heals=(198 182) fails=(0 0) ms=97714
+V5 variant 10 gate N=5 W=20 sums=(-1502.9 1340.3) switches=(35 18) heals=(25 11) fails=(0 0) ms=14494
+V5 variant 18 greedy N=20 W=20 sums=(-4061.4 -376.9) switches=(38 44) heals=(23 18) fails=(0 0) ms=4855
+V5 variant 26 race N=20 W=120 sums=(-266.5 -326.5) switches=(33 28) heals=(11 16) fails=(0 0) ms=12471
+V5_RUN_OK
+METER rc=0 wall=158.2s cpu=148.2s cores=0.94 peak_rss=814MB
+V5 variant 3 greedy N=1 W=60 sums=(-3093.0 -2791.3) switches=(264 235) heals=(139 115) fails=(0 0) ms=49752
+V5 variant 11 race N=5 W=20 sums=(-3919.3 -3611.3) switches=(132 128) heals=(59 61) fails=(0 0) ms=19197
+V5 variant 19 gate N=20 W=20 sums=(-215.0 764.0) switches=(15 11) heals=(12 6) fails=(0 0) ms=4213
+V5_RUN_OK
+METER rc=0 wall=129.6s cpu=121.4s cores=0.94 peak_rss=613MB
+V5 variant 4 gate N=1 W=60 sums=(448.1 1837.6) switches=(25 28) heals=(19 25) fails=(0 0) ms=104014
+V5 variant 12 greedy N=5 W=60 sums=(-2014.8 -674.3) switches=(91 94) heals=(51 44) fails=(0 0) ms=9050
+V5 variant 20 race N=20 W=20 sums=(-2045.0 -3941.8) switches=(39 41) heals=(21 22) fails=(0 0) ms=6922
+V5_RUN_OK
+METER rc=0 wall=148.6s cpu=140.6s cores=0.95 peak_rss=518MB
+V5 variant 5 race N=1 W=60 sums=(-2986.9 -1643.8) switches=(321 304) heals=(146 134) fails=(0 0) ms=161056
+V5 variant 13 gate N=5 W=60 sums=(467.2 2012.5) switches=(15 14) heals=(8 8) fails=(0 0) ms=19265
+V5 variant 21 greedy N=20 W=60 sums=(-2535.3 -3308.8) switches=(38 36) heals=(21 17) fails=(0 0) ms=4340
+V5_RUN_OK
+METER rc=0 wall=213.2s cpu=203.6s cores=0.96 peak_rss=1004MB
+V5 variant 6 greedy N=1 W=120 sums=(-1251.4 -864.5) switches=(200 200) heals=(114 91) fails=(0 0) ms=43598
+V5 variant 14 race N=5 W=60 sums=(-1425.0 -943.7) switches=(104 95) heals=(46 36) fails=(0 0) ms=30260
+V5 variant 22 gate N=20 W=60 sums=(-1905.8 2425.0) switches=(9 6) heals=(6 3) fails=(0 0) ms=6876
+V5_RUN_OK
+METER rc=0 wall=109.5s cpu=100.8s cores=0.92 peak_rss=604MB
+V5 variant 7 gate N=1 W=120 sums=(-790.6 -1666.2) switches=(27 34) heals=(27 32) fails=(0 0) ms=147384
+V5 variant 15 greedy N=5 W=120 sums=(-796.5 170.7) switches=(74 83) heals=(40 28) fails=(0 0) ms=8722
+V5 variant 23 race N=20 W=60 sums=(-1901.8 -1901.5) switches=(35 37) heals=(22 15) fails=(0 0) ms=9265
+V5_RUN_OK
+METER rc=0 wall=193.9s cpu=185.0s cores=0.95 peak_rss=510MB
