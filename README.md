@@ -1025,6 +1025,86 @@ Aura 仍用自编 main `4f2e40838`（`/tmp/aura-main3`）。开工时 origin/mai
 - **Aura**：控制面延迟（决策几十毫秒、swap 十几毫秒）远低于任何合理的调整节奏；需要注意 #5312 的累积变慢和开头的停顿。
 - **部署**：按事先提交的规则空仓。不建议用这套规则上 Demo 实跑；它至多值得作为观察对象继续纸面跟踪。
 
+## v6：利差与截面关系，小时到日频，在从没下载过的 8 个货币对上做最终检验（frozen-v6）
+
+起因：单品种价格动量/均值回归在 v2–v5 上扣完成本后几乎没有毛利。这一版把信号换成利差（政策利率差）和品种之间的截面关系，决策频率是 H4 / D1，不是高频。Aura 负责控制面（窗口 Sharpe、`tune:gate` / `tune:race`、`evo:trial`、`hot-strategy:swap!` / `heal!`、`select:drift?`），Python 按列预计算 26 个篮子配置的每日净值。
+
+Aura 用自编 main `7167490ea`（`/workspace/aura-src`，完整哈希 `7167490eacaf13b4af4f2376954b7265e4306f2f`，官方 release preset，`ghcr.io/cybrid-systems/aura-ci:v0.1.1` 解包 chroot 编译）。8 核，编译 `J=6`，配置时可用内存约 13.6 GiB（MemTotal 15.6 GiB）。训练搜索时可用内存约 3.0 GiB，所以 `JOBS=2`。没有连 FXCM。
+
+**提交顺序**：协议 + 部署规则 `58f300d`（搜索前）→ 训练利率/VIX `71baf37` → 训练行情 `99518f6` → 训练结果 `dc9908b` → 冻结 `9c53bd1`（推送后才下载 8 个新货币对）→ 最终检验数据与静态表（本提交）。`v6-prep.py` 里 VIX 门控曾把 `numpy.bool_` 写成 `is False`（这是 Python 的坑，不是 Aura 的问题），在搜索前已修并推送 `bbfa923`。
+
+### 数据与成本
+
+- **训练篮子**（已经看过的 7 个 G10 美元交叉）：EUR/USD、GBP/USD、USD/JPY、AUD/USD、NZD/USD、USD/CAD、USD/CHF。Dukascopy 公开 H1 BID/ASK，2015-01 至 2023-12，聚合成 H4（UTC 四小时桶）和 D1（22:00 UTC 收盘）。打分从 2016-07-01 开始。Walk-forward 验证年 2021 / 2022 / 2023。
+- **最终检验篮子**（冻结前从未下载）：USD/NOK、USD/SEK、USD/MXN、USD/ZAR、AUD/JPY、GBP/JPY、EUR/AUD、EUR/CAD，2024-01-01 至 2026-10-31（另下 2023-01 起的数据作窗口历史）。预先登记的描述性子篮子（不参与部署决策）：sub-em = USDNOK/USDSEK/USDMXN/USDZAR，sub-g10x = AUDJPY/GBPJPY/EURAUD/EURCAD。
+- **利率**：BIS WS_CBPOL 月度政策利率；策略只用上一个月，没有前视。日本 2013-05 至 2016-08 官方没有政策利率（QQE），填 0.0，2016-09 起是官方 −0.1。最终检验是第一次下载 NO/SE/MX/ZA。
+- **VIX**：公共数据集 `datasets/finance-vix` 的 CBOE 收盘（FRED VIXCLS / Stooq 是脚本里的备选，这次没用到）。训练段截止 2023-12-29。最终检验用到的序列只到 **2026-09-22**，短于检验期末 2026-10-31；`v6-prep` 用前一日 VIX，所以 2026-10 的 VIX 门控沿用最后一根已有收盘。
+- **成本**：点差取 FXCM 马来西亚「Kos Sebaran」公布的典型点差（2024 年 6 月更新，EUR/USD 1.3 与 v5 一致），**是公布值不是实测**。每边再加 0.2 点滑点。1 万基础货币。盈亏经前一日报价兑美元收盘换成美元。隔夜：上月政策利率差减去 1% 年化加点，/360，周三 3 晚——这是近似，不是实测掉期点。
+- **换算辅助**：交叉盘报价兑美元用已经看过的 USD/JPY、AUD/USD、USD/CAD 日线（v3 / v4 的 final D1，复制到 `data/v6/*-final-d1.csv` 供 `find_d1` 使用）。这些不是新的最终检验品种，已在冻结说明里披露。
+- 原始 Dukascopy `.bi5` 和 H1 不入库；下载命令和已提交处理后数据的 sha256 在 `data/v6/SOURCES.txt`、`data/v6/SHA256SUMS`、`data/v6/SHA256SUMS-final`。
+
+### 训练段（7 对合计，2016-07-01 至 2023-12-31，美元 / 年化 Sharpe）
+
+26 个已提交配置 + 设计段上的 16 次 NSGA-II + 8 次 `search:init` ES 袖套混合（权重只在 2016-07-01 至 2020-12-31 上拟合，混合结果不进入自适应菜单）+ 24 个 Aura 自适应变体（N ∈ {20,60} × W ∈ {60,120,252} × greedy / gate / race / drift）。试验数 N = 26 + 24 + 24 + 冒烟 0 = 74。24 个自适应运行全部 `swap-fail=0`、`trial-fail=0`。
+
+按信号族、在全段 Sharpe 最好的成员：
+
+| 族 | 最好的配置 | 设计 2016-07–2020 | 验证 2021–2023 | 全段 |
+|---|---|---:|---:|---:|
+| 等权利差 | carry-eq-d1 | +1,128 / 0.086 | +2,779 / 0.289 | +3,907 / 0.172 |
+| 利差 z 权重 | carry-z-d1 | −3,440 / −0.230 | +4,060 / 0.365 | +620 / 0.024 |
+| 波动缩放利差 | carry-vol-d1 | −1,339 / −0.116 | +2,587 / 0.310 | +1,248 / 0.063 |
+| 顺势利差 | carry-mom252-h4 | −834 / −0.089 | +2,257 / 0.250 | +1,423 / 0.076 |
+| VIX 门控利差 | carry-vix-20-d1 | +1,612 / 0.157 | +2,010 / 0.306 | +3,622 / 0.215 |
+| 截面动量 | xsmom-63-d1 | −5,426 / −0.407 | −1,207 / −0.116 | −6,634 / −0.279 |
+| 美元时序动量 | usd-tsmom-252-d1 | −3,544 / −0.192 | −4,569 / −0.309 | −8,112 / −0.243 |
+| 残差动量 | resid-mom-252-d1 | −9,184 / −1.046 | −1,693 / −0.303 | −10,878 / −0.757 |
+| 残差回归 | resid-mr-60-d1 | −787 / −0.110 | +1,725 / 0.400 | +938 / 0.082 |
+| v5 固定迁移 | v5fixed-h4-mr5d-1.0 | −7,688 / −0.752 | +3,217 / 0.423 | −4,471 / −0.250 |
+
+设计段上的 NSGA-II / ES 混合样本内 Sharpe 已经是负的（分别为 −0.008 和 −0.022）。利差族在验证段普遍为正；截面动量和美元因子在训练段就是亏的。
+
+自适应：v1 = gate-N60-W60（设计段年化 Sharpe 0.416，验证段净利 +959、年化 0.105，日 Sharpe val1 = +0.0066 > 0）。v* = gate-N20-W60（全段 +3,294，年化 0.256）。f* = carry-vix-20-d1（全段 +3,622，年化 0.215）。等权利差基线 carry-eq-d1 全段 +3,907，年化 0.172。v* 的 deflated Sharpe：日 SR 0.0161，SR0 0.0467（N=74），deflated −0.0305，DSR 0.089。部署规则要求 val1 > 0 **且** SR(v*) − SR0 > 0，第二条不满足，**部署结论：空仓**。
+
+训练段控制面延迟（v* gate-N20-W60，137 次决策、10 次切换、8 次回滚）：决策平均 10.7 ms，中位 5 ms，最大 60 ms；swap 平均 31.3 ms，最大 45 ms。两个搜索进程峰值 RSS 约 0.83 GiB 和 1.07 GiB。这个节奏跟 H4/D1 完全跟得上。
+
+### 最终检验（8 个新货币对，2024-01-02 至 2026-10-30，736 个交易日）
+
+`scripts/v6-final.sh` 在冻结推送之后只启动了一次。下载、利率、1× / 2× 预计算和混合都完成了。随后官方入口 `aura run v6-final.aura` 在类型检查阶段以 0.2 秒失败：`unbound variable: cadddr`（`v6-final.aura:25`）。没有写出 `out/v6-final.json`，也没有 `V6_FINAL_OK`。**控制面的 as-if（gate-N20-W60）因此没有结果，也没有重跑**——这已经算一次官方调用，不能为了补表再跑一遍。下面的表来自同一次脚本里已经算完的固定配置和混合列，不是自适应控制循环的输出。部署方案仍是空仓。
+
+| 方案 | 成本 | 净利 | 年化 Sharpe | t（对空仓） | DSR（N=74） | 最大回撤 |
+|---|---|---:|---:|---:|---:|---:|
+| 部署：空仓 | — | 0 | 0 | 0 | — | 0 |
+| as-if f* carry-vix-20-d1 | 1× | +2,702 | 0.344 | 0.59 | 0.25 | 5,514 |
+| as-if carry-eq-d1 | 1× | +6,094 | 0.646 | 1.10 | 0.44 | 6,058 |
+| as-if v5fixed-h4-mr5d-1.0 | 1× | +28 | 0.004 | 0.01 | 0.10 | 4,506 |
+| as-if nsga2-blend | 1× | +1,582 | 0.328 | 0.56 | 0.24 | 3,333 |
+| as-if f* carry-vix-20-d1 | 2× | +1,980 | 0.252 | 0.43 | 0.20 | 5,828 |
+| as-if carry-eq-d1 | 2× | +6,074 | 0.643 | 1.10 | 0.43 | 6,070 |
+| as-if v5fixed-h4-mr5d-1.0 | 2× | −1,970 | −0.280 | −0.48 | 0.04 | 4,901 |
+| as-if nsga2-blend | 2× | +900 | 0.187 | 0.32 | 0.17 | 3,553 |
+
+等权利差在样本外 8 对、1× 和 2× 成本上都是最好的静态结果（约 +6,094，t=1.10），但相对训练时的 SR0 仍然没有越过 deflation 线，也**不能**事后改部署结论。f* 的 VIX 门控利差为正，但更弱。v5 最好固定规则几乎是零，2× 成本下转负。交叉截面动量在这 8 对上继续大亏（xsmom-21-h4 1× −12,178）。预先登记的子篮子没有单独成表，因为官方报告脚本没跑到。
+
+### 要不要上 Demo
+
+**不建议。** 预先写定的部署规则是空仓；最终检验里没有得到自适应 as-if 的官方数字；即便静态利差看起来还行，t 只有约 1.1，而且这是在已经看到检验数据之后的描述，不是新的部署决策。没有连 FXCM，没有下任何单。
+
+### 未做 / 未通过的项
+
+- 点差和隔夜都是公布值或利率近似，不是实测点差和掉期点。
+- 最终检验 VIX 只到 2026-09-22。
+- 交叉盘兑美元换算用了 v3/v4 已经看过的日线。
+- `v6-final.aura` 用了核心里不存在的 `cadddr`（`cadr` / `caddr` 可用）。这一次官方调用已经失败，没有改冻结文件，也没有重跑。会在 cybrid-systems/aura 去重后开中文单。
+- 没有把混合配置放进自适应菜单（那会把设计段的前视带进选择）。没用 `llm:chat`。
+- 没有 CI；没连 FXCM。
+
+### 验证
+
+- `frozen/v6.sha256` 的 12 个文件全部 OK；从 `9c53bd1` 起 `frozen/` 没有改动。
+- 日志里有 8 个货币对的 `FETCH_OK`、`RATES_OK`、两次 `PREP_OK`、两次 `V6_BLEND_OK`，以及 `unbound variable: cadddr`；**没有** `V6_FINAL_OK`。
+- `results/v6/select.json` 的 deploy.variant 是 `flat`。
+
 ## 布局
 
 | 路径 | 作用 |
@@ -1057,7 +1137,7 @@ Aura 仍用自编 main `4f2e40838`（`/tmp/aura-main3`）。开工时 origin/mai
 | `frozen/v3.json` / `frozen/v3.sha256` / `frozen/v3-*.json` | v3 冻结：部署结论、两套参数、点差、试验数与搜索记录 |
 | `v3-final.aura` / `scripts/v3-final.sh` / `scripts/v3-fetch-final.py` | v3 最终检验（新货币对 + EUR/USD 参考），最后打印 `V3_FINAL_OK` |
 | `scripts/v3-bars.py` / `data/v3/` | H1 聚合到 H4 / D1；v3 用到的数据 |
-| `results/` | v3 / v4 / v5 搜索、选择和最终检验的日志与结果 |
+| `results/` | v3 / v4 / v5 / v6 搜索、选择和最终检验的日志与结果 |
 | `lib/v4.aura` / `lib/v4evo.aura` | v4 规则 DSL、按列和逐根两种求值、GP 算子、门禁、LLM 提案、三个分支的进化循环 |
 | `v4-search.aura` / `v4-select.aura` / `scripts/v4-search.sh` | v4 每个折-分支一个进程的搜索；搜索前提交的部署规则 |
 | `scripts/v4-fetch.py` / `scripts/v4-rates.py` / `scripts/v4-prep.py` / `data/v4/` | Dukascopy 小时线、BIS 政策利率、D1 特征表 |
@@ -1067,6 +1147,10 @@ Aura 仍用自编 main `4f2e40838`（`/tmp/aura-main3`）。开工时 origin/mai
 | `scripts/v5-fetch.py` / `scripts/v5-prep.py` / `scripts/v5-freq.py` / `data/v5/` | Dukascopy M1 → M5、96 个配置的按列预计算（含 2× 成本）、频率对比表 |
 | `scripts/v5-select.py` / `scripts/v5-freeze.py` / `frozen/v5.json` / `frozen/v5-select.json` / `frozen/v5.sha256` | v5 部署规则和冻结 |
 | `v5-final.aura` / `scripts/v5-final.sh` / `scripts/v5-report.py` | v5 最终检验（EUR/GBP，1× / 2× 成本），最后打印 `V5_FINAL_OK` / `V5_REPORT_OK` |
+| `lib/v6.aura` / `v6-search.aura` / `v6-nsga.aura` / `scripts/v6-search.sh` | v6 利差与截面配置的按列预计算控制循环，以及 24 个自适应变体和设计段混合 |
+| `scripts/v6-fetch.py` / `scripts/v6-rates.py` / `scripts/v6-prep.py` / `data/v6/` | Dukascopy H1→H4/D1、BIS 政策利率、VIX、26 个配置的净值列 |
+| `scripts/v6-select.py` / `scripts/v6-freeze.py` / `frozen/v6.json` / `frozen/v6-select.json` / `frozen/v6.sha256` | v6 部署规则和冻结 |
+| `v6-final.aura` / `scripts/v6-final.sh` / `scripts/v6-report.py` | v6 最终检验（8 个新货币对，1× / 2× 成本）。这一次 `v6-final.aura` 因 `cadddr` 未绑定在类型检查阶段失败，没有 `V6_FINAL_OK` |
 | `scripts/meter.py` | 记录墙钟、CPU、等效核数和峰值内存 |
 | `bridge/fc_adapter.py` | probe、login、paper、live（含 --offline / --dry-run），自带风控检查 |
 

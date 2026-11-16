@@ -1,0 +1,602 @@
+[
+ {
+  "variant": 0,
+  "method": "greedy",
+  "N": 20,
+  "W": 60,
+  "switches": 69,
+  "heals": 33,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 135,
+  "switch-cost": 555.41,
+  "ms": 35568,
+  "dec-ms": {
+   "n": 135,
+   "mean": 30.62962962962963,
+   "p50": 37.0,
+   "max": 258.0
+  },
+  "swap-ms": {
+   "n": 102,
+   "mean": 34.8235294117647,
+   "p50": 36.0,
+   "max": 250.0
+  }
+ },
+ {
+  "variant": 1,
+  "method": "gate",
+  "N": 20,
+  "W": 60,
+  "switches": 10,
+  "heals": 8,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 137,
+  "switch-cost": 103.15,
+  "ms": 32348,
+  "dec-ms": {
+   "n": 137,
+   "mean": 10.708029197080291,
+   "p50": 5.0,
+   "max": 60.0
+  },
+  "swap-ms": {
+   "n": 18,
+   "mean": 31.333333333333332,
+   "p50": 34.0,
+   "max": 45.0
+  }
+ },
+ {
+  "variant": 2,
+  "method": "race",
+  "N": 20,
+  "W": 60,
+  "switches": 67,
+  "heals": 37,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 140,
+  "switch-cost": 642.75,
+  "ms": 16627,
+  "dec-ms": {
+   "n": 140,
+   "mean": 66.73571428571428,
+   "p50": 52.0,
+   "max": 176.0
+  },
+  "swap-ms": {
+   "n": 104,
+   "mean": 38.80769230769231,
+   "p50": 41.0,
+   "max": 62.0
+  }
+ },
+ {
+  "variant": 3,
+  "method": "drift",
+  "N": 20,
+  "W": 60,
+  "switches": 81,
+  "heals": 38,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 135,
+  "switch-cost": 543.44,
+  "ms": 12189,
+  "dec-ms": {
+   "n": 135,
+   "mean": 32.925925925925924,
+   "p50": 40.0,
+   "max": 81.0
+  },
+  "swap-ms": {
+   "n": 119,
+   "mean": 32.08403361344538,
+   "p50": 35.0,
+   "max": 74.0
+  }
+ },
+ {
+  "variant": 4,
+  "method": "greedy",
+  "N": 20,
+  "W": 120,
+  "switches": 69,
+  "heals": 25,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 142,
+  "switch-cost": 449.51,
+  "ms": 10825,
+  "dec-ms": {
+   "n": 142,
+   "mean": 26.218309859154928,
+   "p50": 27.0,
+   "max": 69.0
+  },
+  "swap-ms": {
+   "n": 94,
+   "mean": 33.41489361702128,
+   "p50": 35.0,
+   "max": 63.0
+  }
+ },
+ {
+  "variant": 5,
+  "method": "gate",
+  "N": 20,
+  "W": 120,
+  "switches": 15,
+  "heals": 14,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 128,
+  "switch-cost": 153.46,
+  "ms": 11133,
+  "dec-ms": {
+   "n": 128,
+   "mean": 23.0859375,
+   "p50": 20.0,
+   "max": 72.0
+  },
+  "swap-ms": {
+   "n": 29,
+   "mean": 31.79310344827586,
+   "p50": 32.0,
+   "max": 61.0
+  }
+ },
+ {
+  "variant": 6,
+  "method": "race",
+  "N": 20,
+  "W": 120,
+  "switches": 65,
+  "heals": 37,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 144,
+  "switch-cost": 492.68,
+  "ms": 23455,
+  "dec-ms": {
+   "n": 144,
+   "mean": 110.03472222222223,
+   "p50": 99.0,
+   "max": 310.0
+  },
+  "swap-ms": {
+   "n": 102,
+   "mean": 41.51960784313726,
+   "p50": 42.0,
+   "max": 72.0
+  }
+ },
+ {
+  "variant": 7,
+  "method": "drift",
+  "N": 20,
+  "W": 120,
+  "switches": 101,
+  "heals": 34,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 164,
+  "switch-cost": 613.65,
+  "ms": 12981,
+  "dec-ms": {
+   "n": 164,
+   "mean": 33.15243902439025,
+   "p50": 41.0,
+   "max": 76.0
+  },
+  "swap-ms": {
+   "n": 135,
+   "mean": 34.45185185185185,
+   "p50": 37.0,
+   "max": 70.0
+  }
+ },
+ {
+  "variant": 8,
+  "method": "greedy",
+  "N": 20,
+  "W": 252,
+  "switches": 57,
+  "heals": 37,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 164,
+  "switch-cost": 517.74,
+  "ms": 12076,
+  "dec-ms": {
+   "n": 164,
+   "mean": 24.8109756097561,
+   "p50": 23.0,
+   "max": 77.0
+  },
+  "swap-ms": {
+   "n": 94,
+   "mean": 35.734042553191486,
+   "p50": 39.0,
+   "max": 71.0
+  }
+ },
+ {
+  "variant": 9,
+  "method": "gate",
+  "N": 20,
+  "W": 252,
+  "switches": 8,
+  "heals": 7,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 110,
+  "switch-cost": 64.84,
+  "ms": 11539,
+  "dec-ms": {
+   "n": 110,
+   "mean": 33.981818181818184,
+   "p50": 35.0,
+   "max": 114.0
+  },
+  "swap-ms": {
+   "n": 15,
+   "mean": 33.46666666666667,
+   "p50": 34.0,
+   "max": 47.0
+  }
+ },
+ {
+  "variant": 10,
+  "method": "race",
+  "N": 20,
+  "W": 252,
+  "switches": 55,
+  "heals": 30,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 132,
+  "switch-cost": 400.36,
+  "ms": 35389,
+  "dec-ms": {
+   "n": 132,
+   "mean": 209.03787878787878,
+   "p50": 202.0,
+   "max": 517.0
+  },
+  "swap-ms": {
+   "n": 85,
+   "mean": 41.56470588235294,
+   "p50": 42.0,
+   "max": 71.0
+  }
+ },
+ {
+  "variant": 11,
+  "method": "drift",
+  "N": 20,
+  "W": 252,
+  "switches": 96,
+  "heals": 40,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 158,
+  "switch-cost": 673.63,
+  "ms": 12962,
+  "dec-ms": {
+   "n": 158,
+   "mean": 34.62658227848101,
+   "p50": 41.0,
+   "max": 67.0
+  },
+  "swap-ms": {
+   "n": 136,
+   "mean": 34.154411764705884,
+   "p50": 36.0,
+   "max": 61.0
+  }
+ },
+ {
+  "variant": 12,
+  "method": "greedy",
+  "N": 60,
+  "W": 60,
+  "switches": 38,
+  "heals": 22,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 73,
+  "switch-cost": 298.22,
+  "ms": 9984,
+  "dec-ms": {
+   "n": 73,
+   "mean": 34.136986301369866,
+   "p50": 44.0,
+   "max": 65.0
+  },
+  "swap-ms": {
+   "n": 60,
+   "mean": 35.71666666666667,
+   "p50": 38.0,
+   "max": 59.0
+  }
+ },
+ {
+  "variant": 13,
+  "method": "gate",
+  "N": 60,
+  "W": 60,
+  "switches": 7,
+  "heals": 3,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 67,
+  "switch-cost": 51.04,
+  "ms": 6859,
+  "dec-ms": {
+   "n": 67,
+   "mean": 10.626865671641792,
+   "p50": 5.0,
+   "max": 68.0
+  },
+  "swap-ms": {
+   "n": 10,
+   "mean": 36.2,
+   "p50": 38.0,
+   "max": 49.0
+  }
+ },
+ {
+  "variant": 14,
+  "method": "race",
+  "N": 60,
+  "W": 60,
+  "switches": 37,
+  "heals": 19,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 78,
+  "switch-cost": 294.36,
+  "ms": 13248,
+  "dec-ms": {
+   "n": 78,
+   "mean": 70.98717948717949,
+   "p50": 68.0,
+   "max": 164.0
+  },
+  "swap-ms": {
+   "n": 56,
+   "mean": 43.67857142857143,
+   "p50": 48.0,
+   "max": 77.0
+  }
+ },
+ {
+  "variant": 15,
+  "method": "drift",
+  "N": 60,
+  "W": 60,
+  "switches": 66,
+  "heals": 17,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 85,
+  "switch-cost": 271.68,
+  "ms": 10776,
+  "dec-ms": {
+   "n": 85,
+   "mean": 41.1764705882353,
+   "p50": 44.0,
+   "max": 78.0
+  },
+  "swap-ms": {
+   "n": 83,
+   "mean": 36.7710843373494,
+   "p50": 38.0,
+   "max": 72.0
+  }
+ },
+ {
+  "variant": 16,
+  "method": "greedy",
+  "N": 60,
+  "W": 120,
+  "switches": 37,
+  "heals": 19,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 70,
+  "switch-cost": 287.23,
+  "ms": 9965,
+  "dec-ms": {
+   "n": 70,
+   "mean": 34.31428571428572,
+   "p50": 44.0,
+   "max": 80.0
+  },
+  "swap-ms": {
+   "n": 56,
+   "mean": 36.982142857142854,
+   "p50": 40.0,
+   "max": 75.0
+  }
+ },
+ {
+  "variant": 17,
+  "method": "gate",
+  "N": 60,
+  "W": 120,
+  "switches": 8,
+  "heals": 4,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 62,
+  "switch-cost": 67.81,
+  "ms": 7710,
+  "dec-ms": {
+   "n": 62,
+   "mean": 18.241935483870968,
+   "p50": 8.0,
+   "max": 78.0
+  },
+  "swap-ms": {
+   "n": 12,
+   "mean": 40.416666666666664,
+   "p50": 44.0,
+   "max": 66.0
+  }
+ },
+ {
+  "variant": 18,
+  "method": "race",
+  "N": 60,
+  "W": 120,
+  "switches": 35,
+  "heals": 19,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 75,
+  "switch-cost": 309.14,
+  "ms": 16668,
+  "dec-ms": {
+   "n": 75,
+   "mean": 118.02666666666667,
+   "p50": 103.0,
+   "max": 282.0
+  },
+  "swap-ms": {
+   "n": 54,
+   "mean": 47.81481481481482,
+   "p50": 48.0,
+   "max": 88.0
+  }
+ },
+ {
+  "variant": 19,
+  "method": "drift",
+  "N": 60,
+  "W": 120,
+  "switches": 56,
+  "heals": 13,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 72,
+  "switch-cost": 312.8,
+  "ms": 10477,
+  "dec-ms": {
+   "n": 72,
+   "mean": 43.55555555555556,
+   "p50": 47.0,
+   "max": 77.0
+  },
+  "swap-ms": {
+   "n": 69,
+   "mean": 40.04347826086956,
+   "p50": 41.0,
+   "max": 71.0
+  }
+ },
+ {
+  "variant": 20,
+  "method": "greedy",
+  "N": 60,
+  "W": 252,
+  "switches": 33,
+  "heals": 16,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 79,
+  "switch-cost": 299.69,
+  "ms": 10129,
+  "dec-ms": {
+   "n": 79,
+   "mean": 29.518987341772153,
+   "p50": 30.0,
+   "max": 88.0
+  },
+  "swap-ms": {
+   "n": 49,
+   "mean": 39.97959183673469,
+   "p50": 42.0,
+   "max": 82.0
+  }
+ },
+ {
+  "variant": 21,
+  "method": "gate",
+  "N": 60,
+  "W": 252,
+  "switches": 7,
+  "heals": 6,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 48,
+  "switch-cost": 64.57,
+  "ms": 9172,
+  "dec-ms": {
+   "n": 48,
+   "mean": 32.541666666666664,
+   "p50": 33.0,
+   "max": 94.0
+  },
+  "swap-ms": {
+   "n": 13,
+   "mean": 35.23076923076923,
+   "p50": 38.0,
+   "max": 50.0
+  }
+ },
+ {
+  "variant": 22,
+  "method": "race",
+  "N": 60,
+  "W": 252,
+  "switches": 38,
+  "heals": 12,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 77,
+  "switch-cost": 260.13,
+  "ms": 24498,
+  "dec-ms": {
+   "n": 77,
+   "mean": 222.66233766233765,
+   "p50": 224.0,
+   "max": 582.0
+  },
+  "swap-ms": {
+   "n": 50,
+   "mean": 47.6,
+   "p50": 50.0,
+   "max": 71.0
+  }
+ },
+ {
+  "variant": 23,
+  "method": "drift",
+  "N": 60,
+  "W": 252,
+  "switches": 64,
+  "heals": 15,
+  "swap-fail": 0,
+  "trial-fail": 0,
+  "decisions": 79,
+  "switch-cost": 437.32,
+  "ms": 10214,
+  "dec-ms": {
+   "n": 79,
+   "mean": 41.936708860759495,
+   "p50": 44.0,
+   "max": 71.0
+  },
+  "swap-ms": {
+   "n": 79,
+   "mean": 37.12658227848101,
+   "p50": 39.0,
+   "max": 66.0
+  }
+ }
+]

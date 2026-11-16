@@ -1,0 +1,14 @@
+V6 variant 1 gate N=20 W=60 sum=3293.7 switches=10 heals=8 fails=0 trial-fail=0 drift=52 ms=32355
+V6 variant 3 drift N=20 W=60 sum=-10718.9 switches=81 heals=38 fails=0 trial-fail=0 drift=51 ms=12196
+V6 variant 5 gate N=20 W=120 sum=-5139.9 switches=15 heals=14 fails=0 trial-fail=0 drift=33 ms=11139
+V6 variant 7 drift N=20 W=120 sum=-2751.3 switches=101 heals=34 fails=0 trial-fail=0 drift=83 ms=12988
+V6 variant 9 gate N=20 W=252 sum=-1952.0 switches=8 heals=7 fails=0 trial-fail=0 drift=14 ms=11545
+V6 variant 11 drift N=20 W=252 sum=-11216.8 switches=96 heals=40 fails=0 trial-fail=0 drift=79 ms=12969
+V6 variant 13 gate N=60 W=60 sum=4091.4 switches=7 heals=3 fails=0 trial-fail=0 drift=41 ms=6866
+V6 variant 15 drift N=60 W=60 sum=-2327.2 switches=66 heals=17 fails=0 trial-fail=0 drift=61 ms=10783
+V6 variant 17 gate N=60 W=120 sum=1781.3 switches=8 heals=4 fails=0 trial-fail=0 drift=37 ms=7717
+V6 variant 19 drift N=60 W=120 sum=3438.8 switches=56 heals=13 fails=0 trial-fail=0 drift=52 ms=10485
+V6 variant 21 gate N=60 W=252 sum=-4774.2 switches=7 heals=6 fails=0 trial-fail=0 drift=15 ms=9178
+V6 variant 23 drift N=60 W=252 sum=-2283.2 switches=64 heals=15 fails=0 trial-fail=0 drift=59 ms=10222
+V6_RUN_OK
+METER rc=0 wall=272.5s cpu=265.8s cores=0.98 peak_rss=829MB

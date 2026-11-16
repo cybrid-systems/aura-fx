@@ -1,0 +1,52 @@
+SEARCH_START 2026-11-16 19:29:46 +0800
+AURA=/workspace/aura-src/dist/aura-7167490ea-linux-x86_64/bin/aura
+aura dev (7167490eacaf13b4af4f2376954b7265e4306f2f)
+JOBS=2 nproc=8
+MemTotal:       16386416 kB
+MemAvailable:    3144928 kB
+CONFIG carry-eq-d1 sum=3516.3
+CONFIG carry-eq-h4 sum=3226.8
+CONFIG carry-z-d1 sum=-943.6
+CONFIG carry-z-h4 sum=-711.0
+CONFIG carry-vol-d1 sum=1583.1
+CONFIG carry-vol-h4 sum=1270.1
+CONFIG carry-mom63-d1 sum=-2784.4
+CONFIG carry-mom63-h4 sum=-5863.0
+CONFIG carry-mom252-d1 sum=1915.6
+CONFIG carry-mom252-h4 sum=1654.2
+CONFIG xsmom-21-d1 sum=-11127.3
+CONFIG xsmom-21-h4 sum=-10218.2
+CONFIG xsmom-63-d1 sum=-13105.5
+CONFIG xsmom-63-h4 sum=-18894.1
+CONFIG xsmom-126-d1 sum=-7813.6
+CONFIG xsmom-252-d1 sum=-11519.0
+CONFIG usd-tsmom-63-d1 sum=-22048.5
+CONFIG usd-tsmom-252-d1 sum=-13281.1
+CONFIG resid-mom-63-d1 sum=-16413.6
+CONFIG resid-mom-252-d1 sum=-11147.9
+CONFIG resid-mr-60-d1 sum=1554.0
+CONFIG resid-mr-120-d1 sum=-2569.1
+CONFIG carry-vix-med-d1 sum=-1106.5
+CONFIG carry-vix-20-d1 sum=2100.3
+CONFIG carry-vix-rev-d1 sum=-12868.3
+CONFIG v5fixed-h4-mr5d-1.0 sum=-3922.1
+PREP_OK data/v6/train days=2341 from=2015-01-02 to=2023-12-29 configs=26 pairs=EURUSD,GBPUSD,USDJPY,AUDUSD,NZDUSD,USDCAD,USDCHF
+METER rc=0 wall=2.3s cpu=2.9s cores=1.30 peak_rss=100MB
+V6 NSGA2 blend sharpe=-0.007855258506138973 sum=-950.1524462058823 w=(0.423526958532189 0.1126713284120505 0.2873420265831075 0.17645968647265284)
+V6 ES blend sharpe=-0.022481234794567182 sum=-2381.878840865382 w=(0.223491825096781 0.41347428317433016 0.32218995804714756 0.040843933681741405)
+V6_NSGA_OK nsga-evals=16 es-evals=8
+METER rc=0 wall=4.2s cpu=1.9s cores=0.47 peak_rss=211MB
+BLEND nsga2-blend w=[0.424, 0.113, 0.287, 0.176] sum=-3431.5
+BLEND es-blend w=[0.223, 0.413, 0.322, 0.041] sum=-5032.8
+V6_BLEND_OK
+METER rc=0 wall=272.5s cpu=265.8s cores=0.98 peak_rss=829MB
+METER rc=0 wall=342.5s cpu=335.7s cores=0.98 peak_rss=1074MB
+V6S v1 gate-N60-W60 {'sum': 3132.22, 'sharpe-ann': 0.416, 'days': 1172} validation {'sum': 959.13, 'sharpe-ann': 0.105, 'days': 780}
+V6S f1 carry-vix-20-d1 {'sum': 1611.64, 'sharpe-ann': 0.157, 'days': 1172} validation {'sum': 2010.03, 'sharpe-ann': 0.306, 'days': 780}
+V6S v* gate-N20-W60 {'sum': 3293.61, 'sharpe-ann': 0.256, 'days': 1952} deflated {'sr-daily': 0.0161, 'sr0': 0.0467, 'deflated': -0.0305, 'dsr': 0.0894, 'n': 74}
+V6S f* carry-vix-20-d1 {'sum': 3621.67, 'sharpe-ann': 0.215, 'days': 1952}
+V6S baseline carry-eq-d1 {'sum': 3906.63, 'sharpe-ann': 0.172, 'days': 1952} validation {'sum': 2778.58, 'sharpe-ann': 0.289, 'days': 780}
+V6S v5fixed v5fixed-h4-mr5d-1.0 {'sum': -4470.54, 'sharpe-ann': -0.25, 'days': 1952} validation {'sum': 3217.2, 'sharpe-ann': 0.423, 'days': 780}
+V6S deploy flat trade False n 74
+V6_SELECT_OK
+SEARCH_EXIT:0

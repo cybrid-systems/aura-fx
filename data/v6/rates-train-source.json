@@ -1,0 +1,17 @@
+{
+  "series": "BIS WS_CBPOL monthly policy rates",
+  "url": "https://stats.bis.org/api/v1/data/WS_CBPOL/M.US+XM+GB+JP+AU+NZ+CA+CH/all?format=csv&startPeriod=2014-12&endPeriod=2023-12",
+  "command": "python3 scripts/v6-rates.py data/v6/rates-train.csv data/v6/vix-train.csv 2014-12 2023-12 --cutoff 2024-01-01 US XM GB JP AU NZ CA CH",
+  "areas": ["US", "XM", "GB", "JP", "AU", "NZ", "CA", "CH"],
+  "from": "2014-12",
+  "to": "2023-12",
+  "months": 109,
+  "cutoff": "2024-01-01",
+  "jp_gap_fill": {
+    "from": "2014-12",
+    "to": "2016-08",
+    "months": 21,
+    "value": 0.0,
+    "note": "BIS publishes no Japan policy rate from 4 Apr 2013 to 20 Sep 2016 (BoJ QQE). Filled 0.0 through 2016-08 only. Official -0.1 starts 2016-09. Any other hole fails the fetch."
+  }
+}

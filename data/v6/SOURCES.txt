@@ -1,0 +1,26 @@
+v6 training macro inputs (public, no login). Cut off strictly before 2024-01-01.
+Raw Dukascopy month files and H1 CSVs are not in git (see .gitignore);
+they are cached in data/raw-dukascopy/ and rebuilt by the commands below.
+
+Policy rates (BIS WS_CBPOL, previous-month use, no look-ahead):
+  python3 scripts/v6-rates.py data/v6/rates-train.csv data/v6/vix-train.csv \
+    2014-12 2023-12 --cutoff 2024-01-01 US XM GB JP AU NZ CA CH
+
+VIX (tried in order; this train pull used datasets/finance-vix CBOE close):
+  https://raw.githubusercontent.com/datasets/finance-vix/main/data/vix-daily.csv
+  https://cdn.jsdelivr.net/gh/datasets/finance-vix/data/vix-daily.csv
+  https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
+  https://stooq.com/q/d/l/?s=^vix&i=d
+
+Dukascopy H1 BID/ASK for the 7-pair training basket (2015-01..2023-12):
+  python3 scripts/v6-fetch.py train 2015-01 2023-12 \
+    EURUSD GBPUSD USDJPY AUDUSD NZDUSD USDCAD USDCHF
+
+Final-test prices, EM policy rates (NO/SE/MX/ZA), and 2024+ VIX are
+intentionally not downloaded until after the freeze.
+
+sha256 of the committed train macro files is in data/v6/SHA256SUMS.
+
+Processed train bars committed here (H4 and D1 only). Raw .bi5 and H1 CSVs
+are gitignored; rebuild with the v6-fetch.py command above. All seven pairs
+cover 2015-01-01 22:00Z .. 2023-12-29 21:00Z (D1 from 2015-01-02).
