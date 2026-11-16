@@ -57,6 +57,11 @@ def cached(p, y, m, side):
     return None
 
 
+def current_utc_month():
+    n = dt.datetime.now(dt.timezone.utc)
+    return n.year, n.month
+
+
 def fetch(p, y, m, side):
     hit = cached(p, y, m, side)
     if hit:
@@ -64,19 +69,35 @@ def fetch(p, y, m, side):
     path = f"{RAW}/{p}-{y}-{m:02d}-{side}.bi5"
     url = URL.format(p=p, y=y, m=m - 1, side=side)
     err = None
-    # Dukascopy frequently closes CPython urllib SSL mid-handshake
-    # (UNEXPECTED_EOF_WHILE_READING). curl retries more reliably.
+    # Dukascopy frequently closes TLS mid-handshake. curl --http1.1 is a
+    # bit more reliable than the default here. Do not use curl -f: a
+    # current, still-unpublished month returns HTTP 404 and must not be
+    # retried 30 times.
     for attempt in range(30):
         try:
             r = subprocess.run(
-                ["curl", "-fsS", "-A", "Mozilla/5.0", "--max-time", "45",
-                 "--retry", "2", "--retry-delay", "1", "-o", path + ".tmp", url],
+                ["curl", "-sS", "-A", "Mozilla/5.0", "--max-time", "45",
+                 "--http1.1", "-o", path + ".tmp", "-w", "%{http_code}", url],
                 capture_output=True, text=True,
             )
-            if r.returncode == 0 and os.path.exists(path + ".tmp") and os.path.getsize(path + ".tmp") > 200:
+            code = (r.stdout or "").strip()
+            sz = os.path.getsize(path + ".tmp") if os.path.exists(path + ".tmp") else 0
+            if code == "200" and sz > 200:
                 os.replace(path + ".tmp", path)
                 return path
-            err = r.stderr.strip() or f"curl exit {r.returncode}"
+            if code == "404":
+                try:
+                    if os.path.exists(path + ".tmp"):
+                        os.remove(path + ".tmp")
+                except OSError:
+                    pass
+                if (y, m) == current_utc_month():
+                    print(f"FETCH_SKIP current month not published yet {p} {y}-{m:02d} {side}", flush=True)
+                    return None
+                raise RuntimeError(f"HTTP 404 {url}")
+            err = r.stderr.strip() or f"curl exit {r.returncode} http={code} sz={sz}"
+        except RuntimeError:
+            raise
         except Exception as e:
             err = e
         try:
@@ -85,6 +106,9 @@ def fetch(p, y, m, side):
         except OSError:
             pass
         time.sleep(1 + attempt % 5)
+    if (y, m) == current_utc_month():
+        print(f"FETCH_SKIP current month unavailable {p} {y}-{m:02d} {side} last={err}", flush=True)
+        return None
     raise RuntimeError(f"failed {url}: {err}")
 
 
@@ -122,8 +146,12 @@ def main():
         lo, hi = RANGE[p]
         rows = []
         for y, m in months(a, b):
-            bp = cached(p, y, m, "BID") or f"{RAW}/{p}-{y}-{m:02d}-BID.bi5"
-            ap = cached(p, y, m, "ASK") or f"{RAW}/{p}-{y}-{m:02d}-ASK.bi5"
+            bp = cached(p, y, m, "BID")
+            ap = cached(p, y, m, "ASK")
+            if not bp or not ap:
+                if (y, m) == current_utc_month():
+                    continue
+                sys.exit(f"{p}: missing {y}-{m:02d} BID/ASK after fetch")
             bb = decode(bp, y, m, sc)
             aa = decode(ap, y, m, sc)
             for t in sorted(bb):
