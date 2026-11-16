@@ -1,0 +1,93 @@
+;; Final test of frozen-v3, run once by scripts/v3-final.sh after the
+;; freeze commit. Applies the frozen config unchanged to each pair from
+;; test-from to the end of its data (earlier bars are warm-up only),
+;; with that pair's frozen spread and a 10,000-unit lot, pnl in USD.
+;; Reports per pair, pooled (one lot per new pair, summed per day), per
+;; period, against flat (t of daily pnl vs 0), deflated by the frozen
+;; trial count, and the same at twice the spread. Writes out/v3-final.json.
+(require "lib/v3")
+(require "std/fs" all:)
+
+(define spec (json-parse (read-file "frozen/v3.json")))
+(define dep (hash-ref spec "deploy"))
+(define sec (hash-ref spec "secondary"))
+(define from (hash-ref spec "test-from"))
+(define periods (hash-ref spec "periods"))
+(define (range-list a b) (let loop ((i (- b 1)) (acc (list))) (if (< i a) acc (loop (- i 1) (cons i acc)))))
+
+;; deflation with a frozen trial count and Sharpe variance (daily units)
+(define (v3-deflate daily n var)
+  (let* ((sr (m-sharpe daily)) (sr0 (m-sr0 n var)) (t (length daily))
+         (g3 (m-skew daily)) (g4 (m-kurt daily))
+         (den2 (+ (- 1.0 (* g3 sr)) (* (/ (- g4 1.0) 4.0) sr sr)))
+         (den (sqrt (if (< den2 1e-9) 1e-9 den2)))
+         (z (if (< t 2) 0.0 (/ (* (- sr sr0) (sqrt (- t 1))) den))))
+    (list "sr-daily" (m-round sr 4) "sr0" (m-round sr0 4) "deflated" (m-round (- sr sr0) 4) "dsr" (m-round (m-phi z) 3) "n" n)))
+
+(define (t-flat daily) (m-round (hash-ref (tune:gate daily (map (lambda (x) 0.0) daily) (hash "alpha" 0.05 "sense" "max")) "t") 2))
+
+(define (run-pair cfg p mult)
+  (let* ((pr (hash-ref cfg "params")) (tf (hash-ref cfg "tf"))
+         (s (v3-series (string-append (hash-ref p "prefix") "-" tf ".csv") (hash-ref p "quote")))
+         (a (v3-index s from)) (n (hash-ref s "n"))
+         (half (* mult 0.5 (hash-ref p "spread-pips") (hash-ref p "pip")))
+         (r (v3-run s (v3-positions s pr) a n (hash "half" half "lot" (hash-ref spec "lot"))))
+         (daily (hash-ref r "daily"))
+         (d0 (vector-ref (hash-ref s "day-idx") a))
+         (days (map (lambda (k) (vector-ref (hash-ref s "days") (+ d0 k))) (range-list 0 (length daily)))))
+    (hash "pair" (hash-ref p "name") "mult" mult "daily" daily "days" days
+          "first-day" (car days) "last-day" (car (reverse days)) "n-days" (length daily)
+          "sum" (m-round (hash-ref r "sum") 2) "max-dd" (m-round (hash-ref r "max-dd") 2)
+          "fills-per-year" (m-round (/ (hash-ref r "fills") (/ (length daily) 252.0)) 1)
+          "sharpe-ann" (m-round (v3-sharpe-ann daily) 2) "t-vs-flat" (t-flat daily))))
+
+(define (period-rows r)
+  (let loop ((bs periods) (acc (list)))
+    (if (null? (cdr bs)) (reverse acc)
+      (let* ((lo (car bs)) (hi (cadr bs))
+             (xs (let l ((ds (hash-ref r "days")) (ps (hash-ref r "daily")) (out (list)))
+                   (if (null? ds) (reverse out)
+                     (l (cdr ds) (cdr ps) (if (and (not (string<? (car ds) lo)) (string<? (car ds) hi)) (cons (car ps) out) out))))))
+        (loop (cdr bs) (cons (list lo (m-round (m-sum xs) 1) (length xs)) acc))))))
+
+;; pooled: sum per trading day across the given runs
+(define (pool rs)
+  (let* ((h (foldl (lambda (h r) (let l ((ds (hash-ref r "days")) (ps (hash-ref r "daily")) (h h))
+                                   (if (null? ds) h (l (cdr ds) (cdr ps) (hash-set h (car ds) (+ (car ps) (hash-ref h (car ds) 0.0)))))))
+                   (hash) rs))
+         (days (sort (map car (hash->list h)) string<?)))
+    (hash "days" days "daily" (map (lambda (d) (hash-ref h d)) days))))
+
+(define tr (hash-ref spec "trials"))
+(define (report r)
+  (list (hash-ref r "pair") "sum" (hash-ref r "sum") "sharpe-ann" (hash-ref r "sharpe-ann") "t-vs-flat" (hash-ref r "t-vs-flat")
+        "max-dd" (hash-ref r "max-dd") "fills/yr" (hash-ref r "fills-per-year") "days" (hash-ref r "n-days")
+        "range" (list (hash-ref r "first-day") (hash-ref r "last-day"))
+        "deflated-all-candidates" (v3-deflate (hash-ref r "daily") (hash-ref tr "candidates") (hash-ref tr "candidate-sr-var"))
+        "deflated-procedures" (v3-deflate (hash-ref r "daily") (hash-ref tr "procedures") (hash-ref tr "procedure-sr-var"))
+        "periods" (period-rows r)))
+
+(define (do-mult cfg mult)
+  (let* ((news (map (lambda (p) (run-pair cfg p mult)) (hash-ref spec "pairs")))
+         (pl (pool news))
+         (pooled (hash "pair" "pooled-new-pairs" "daily" (hash-ref pl "daily") "days" (hash-ref pl "days")
+                       "first-day" (car (hash-ref pl "days")) "last-day" (car (reverse (hash-ref pl "days"))) "n-days" (length (hash-ref pl "days"))
+                       "sum" (m-round (m-sum (hash-ref pl "daily")) 2) "max-dd" 0.0 "fills-per-year" 0.0
+                       "sharpe-ann" (m-round (v3-sharpe-ann (hash-ref pl "daily")) 2) "t-vs-flat" (t-flat (hash-ref pl "daily"))))
+         (eur (run-pair cfg (hash-ref spec "reference") mult)))
+    (map report (append news (list pooled eur)))))
+
+(define base (do-mult dep 1.0))
+(define double (do-mult dep 2.0))
+(define sbase (do-mult sec 1.0))
+(define sdouble (do-mult sec 2.0))
+(write-file "out/v3-final.json" (json-encode (hash "spec" (hash-ref spec "version") "deploy" dep "secondary" sec
+                                                   "spread-x1" base "spread-x2" double "secondary-x1" sbase "secondary-x2" sdouble)))
+(display "V3F deploy ") (display (hash->list dep)) (newline)
+(display "V3F params ") (display (hash->list (hash-ref dep "params"))) (newline)
+(for-each (lambda (r) (display "V3F x1 ") (display r) (newline)) base)
+(for-each (lambda (r) (display "V3F x2 ") (display r) (newline)) double)
+(display "V3F secondary ") (display (hash-ref sec "proc")) (display " ") (display (hash->list (hash-ref sec "params"))) (newline)
+(for-each (lambda (r) (display "V3F sec-x1 ") (display r) (newline)) sbase)
+(for-each (lambda (r) (display "V3F sec-x2 ") (display r) (newline)) sdouble)
+(display "V3_FINAL_OK") (newline)

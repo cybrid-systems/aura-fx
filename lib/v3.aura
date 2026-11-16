@@ -1,0 +1,288 @@
+;; v3: low-turnover strategies on H4 / D1 closes with real costs.
+;;
+;; A series is loaded from "time_utc,close,day" (scripts/v3-bars.py).
+;; Every strategy turns the closes into a position vector in {-1, 0, 1}
+;; lots (decided at a bar's close and filled at that close); v3-pnl
+;; charges half the spread on every unit traded and marks the position
+;; from close to close. Hot loops take vectors as arguments (no hash-ref
+;; per bar, see aura#5307).
+;;
+;; Families (genome: 5 numbers in [0, 1], decoded per family; "sig" is
+;; an EWMA of |close change| over ~20 bars, the volatility unit):
+;;   trend    EMA(f) - EMA(f*m) in sig units; enter past tin, go flat
+;;            inside tout (hysteresis), hold at least `hold` bars
+;;   donch    break of the prior N-bar high / low; exit on the prior
+;;            M-bar opposite extreme; hold at least `hold` bars
+;;   tsmom    sign of the L-bar return if |z| > tin, rebalanced every R
+;;   meanrev  fade z = (close - SMA(n)) / (sig sqrt n) past tin, exit
+;;            inside tout or after hmax bars; no entry against a strong
+;;            longer trend (|z of SMA(4n)| > tf)
+;;   flat     never trades
+;; trend / donch / tsmom also take a volatility filter vf: trade only
+;; while sig / sig-long >= vf (vf below 0.3 means off).
+
+(require "lib/metrics")
+(require "std/string" all:)
+
+(define V3-NS (list 10 15 20 30 40 55 80 120))
+(define V3-FAMILIES (list "trend" "donch" "tsmom" "meanrev"))
+
+(define (v3-lerp a b x) (+ a (* (- b a) x)))
+(define (v3-ilerp a b x) (inexact->exact (round (v3-lerp a b x))))
+(define (v3-abs x) (if (< x 0) (- x) x))
+
+;; ── series ──
+(define (v3-ewma-abs c n span)
+  (let ((v (make-vector n 0.0)) (a (/ 2.0 (+ span 1.0))))
+    (let loop ((i 1) (s 0.0))
+      (if (>= i n) v
+        (let* ((d (v3-abs (- (vector-ref c i) (vector-ref c (- i 1)))))
+               (s2 (if (= i 1) d (+ (* a d) (* (- 1.0 a) s)))))
+          (vector-set! v i s2) (loop (+ i 1) s2))))))
+
+(define (v3-roll c n w hi?)
+  (let ((v (make-vector n 0.0)))
+    (let loop ((i 0))
+      (if (>= i n) v
+        (let inner ((j (max 0 (- i (- w 1)))) (m (vector-ref c i)))
+          (if (> j i) (begin (vector-set! v i m) (loop (+ i 1)))
+            (let ((x (vector-ref c j)))
+              (inner (+ j 1) (if hi? (if (> x m) x m) (if (< x m) x m))))))))))
+
+(define (v3-psum c n)
+  (let ((v (make-vector (+ n 1) 0.0)))
+    (let loop ((i 0) (s 0.0))
+      (if (>= i n) v (let ((s2 (+ s (vector-ref c i)))) (vector-set! v (+ i 1) s2) (loop (+ i 1) s2))))))
+
+;; quote: "USD" (pnl already in USD) or "JPY" (divide by the close).
+(define (v3-series path quote)
+  (let* ((lines (filter (lambda (l) (> (string-length l) 0)) (string-split (read-file path) "\n")))
+         (rows (map (lambda (l) (string-split l ",")) (cdr lines)))
+         (n (length rows))
+         (c (list->vector (map (lambda (r) (string->number (cadr r))) rows)))
+         (times (list->vector (map car rows)))
+         (days (map (lambda (r) (list-ref r 2)) rows))
+         (day-idx (make-vector n 0)))
+    (let loop ((i 0) (ds days) (prev #f) (k -1) (keys (list)))
+      (if (null? ds)
+        (hash "n" n "c" c "time" times "day-idx" day-idx "ndays" (+ k 1) "days" (list->vector (reverse keys))
+              "quote" quote
+              "sig" (v3-ewma-abs c n 20) "sig-long" (v3-ewma-abs c n 200) "psum" (v3-psum c n)
+              "hi" (map (lambda (w) (v3-roll c n w #t)) V3-NS)
+              "lo" (map (lambda (w) (v3-roll c n w #f)) V3-NS))
+        (let* ((d (car ds)) (new (not (equal? d prev))) (k2 (if new (+ k 1) k)))
+          (vector-set! day-idx i k2)
+          (loop (+ i 1) (cdr ds) d k2 (if new (cons d keys) keys)))))))
+
+;; first bar index with time >= iso (n if none)
+(define (v3-index s iso)
+  (let ((t (hash-ref s "time")) (n (hash-ref s "n")))
+    (let loop ((i 0)) (cond ((>= i n) n) ((not (string<? (vector-ref t i) iso)) i) (else (loop (+ i 1)))))))
+
+;; ── decoding ──
+(define (v3-decode fam g)
+  (let ((x (lambda (k) (list-ref g k))))
+    (cond
+      ((string=? fam "trend")
+       (let* ((f (v3-ilerp 3 40 (x 0))) (m (v3-lerp 2.0 8.0 (x 1))) (tin (v3-lerp 0.0 4.0 (x 2))))
+         (hash "fam" fam "f" f "s" (max (+ f 1) (inexact->exact (round (* f m)))) "tin" tin
+               "tout" (* tin (x 3)) "hold" (v3-ilerp 1 30 (x 4)) "vf" 0.0)))
+      ((string=? fam "donch")
+       (let* ((ni (v3-ilerp 0 7 (x 0))) (mi (min ni (v3-ilerp 0 7 (x 1)))))
+         (hash "fam" fam "ni" ni "mi" mi "N" (list-ref V3-NS ni) "M" (list-ref V3-NS mi)
+               "hold" (v3-ilerp 1 30 (x 2)) "vf" (let ((v (v3-lerp 0.0 1.4 (x 3)))) (if (< v 0.3) 0.0 v)))))
+      ((string=? fam "tsmom")
+       (hash "fam" fam "L" (v3-ilerp 10 120 (x 0)) "tin" (v3-lerp 0.0 2.0 (x 1)) "R" (v3-ilerp 1 20 (x 2))
+             "vf" (let ((v (v3-lerp 0.0 1.4 (x 3)))) (if (< v 0.3) 0.0 v))))
+      ((string=? fam "meanrev")
+       (let ((tin (v3-lerp 0.5 4.0 (x 1))))
+         (hash "fam" fam "n" (v3-ilerp 10 100 (x 0)) "tin" tin "tout" (* tin (x 2) 0.9)
+               "hmax" (v3-ilerp 2 60 (x 3)) "tf" (v3-lerp 0.5 5.0 (x 4)))))
+      (else (hash "fam" "flat")))))
+
+;; ── position generators ──
+(define (v3-ema-step prev x a) (+ (* a x) (* (- 1.0 a) prev)))
+
+(define (v3-pos-trend c sig sl n f s tin tout hold vf)
+  (let ((pos (make-vector n 0)) (af (/ 2.0 (+ f 1.0))) (as (/ 2.0 (+ s 1.0))))
+    (let loop ((i 1) (ef (vector-ref c 0)) (es (vector-ref c 0)) (p 0) (h 0))
+      (if (>= i n) pos
+        (let* ((x (vector-ref c i)) (ef2 (v3-ema-step ef x af)) (es2 (v3-ema-step es x as))
+               (sg (vector-ref sig i))
+               (d (if (> sg 0.0) (/ (- ef2 es2) sg) 0.0))
+               (ok (or (< vf 0.3) (and (> (vector-ref sl i) 0.0) (>= (/ sg (vector-ref sl i)) vf))))
+               (want (cond ((< i s) 0) ((not ok) 0) ((> d tin) 1) ((< d (- tin)) -1)
+                           ((< (v3-abs d) tout) 0) (else p)))
+               (p2 (if (and (not (= want p)) (>= h hold)) want p))
+               (h2 (if (= p2 p) (+ h 1) 0)))
+          (vector-set! pos i p2)
+          (loop (+ i 1) ef2 es2 p2 h2))))))
+
+(define (v3-pos-donch c sl sig n hiN loN hiM loM N hold vf)
+  (let ((pos (make-vector n 0)))
+    (let loop ((i 1) (p 0) (h 0))
+      (if (>= i n) pos
+        (let* ((x (vector-ref c i))
+               (ok (or (< vf 0.3) (and (> (vector-ref sl i) 0.0) (>= (/ (vector-ref sig i) (vector-ref sl i)) vf))))
+               (want (cond ((< i N) 0)
+                           ((and ok (>= x (vector-ref hiN (- i 1)))) 1)
+                           ((and ok (<= x (vector-ref loN (- i 1)))) -1)
+                           ((and (= p 1) (<= x (vector-ref loM (- i 1)))) 0)
+                           ((and (= p -1) (>= x (vector-ref hiM (- i 1)))) 0)
+                           (else p)))
+               (p2 (if (and (not (= want p)) (>= h hold)) want p))
+               (h2 (if (= p2 p) (+ h 1) 0)))
+          (vector-set! pos i p2)
+          (loop (+ i 1) p2 h2))))))
+
+(define (v3-pos-tsmom c sig sl n L tin R vf)
+  (let ((pos (make-vector n 0)))
+    (let loop ((i 1) (p 0))
+      (if (>= i n) pos
+        (let* ((p2 (if (or (< i L) (not (= 0 (modulo i R)))) p
+                     (let* ((sg (vector-ref sig i))
+                            (z (if (> sg 0.0) (/ (- (vector-ref c i) (vector-ref c (- i L))) (* sg (sqrt L))) 0.0))
+                            (ok (or (< vf 0.3) (and (> (vector-ref sl i) 0.0) (>= (/ sg (vector-ref sl i)) vf)))))
+                       (cond ((not ok) 0) ((> z tin) 1) ((< z (- tin)) -1) (else 0))))))
+          (vector-set! pos i (if (< i L) 0 p2))
+          (loop (+ i 1) p2))))))
+
+(define (v3-pos-meanrev c sig ps n w tin tout hmax tf)
+  (let ((pos (make-vector n 0)) (w4 (* 4 w)))
+    (let loop ((i 1) (p 0) (h 0))
+      (if (>= i n) pos
+        (let* ((sg (vector-ref sig i))
+               (z (if (or (< i w) (<= sg 0.0)) 0.0
+                    (/ (- (vector-ref c i) (/ (- (vector-ref ps (+ i 1)) (vector-ref ps (+ (- i w) 1))) w)) (* sg (sqrt w)))))
+               (zl (if (or (< i w4) (<= sg 0.0)) 0.0
+                     (/ (- (vector-ref c i) (/ (- (vector-ref ps (+ i 1)) (vector-ref ps (+ (- i w4) 1))) w4)) (* sg (sqrt w4)))))
+               (calm (or (>= tf 4.5) (<= (v3-abs zl) tf)))
+               (p2 (cond ((< i w4) 0)
+                         ((= p 0) (cond ((and calm (> z tin)) -1) ((and calm (< z (- tin))) 1) (else 0)))
+                         ((or (< (v3-abs z) tout) (>= h hmax)) 0)
+                         (else p)))
+               (h2 (if (and (= p2 p) (not (= p 0))) (+ h 1) 0)))
+          (vector-set! pos i p2)
+          (loop (+ i 1) p2 h2))))))
+
+(define (v3-positions s pr)
+  (let ((fam (hash-ref pr "fam")) (c (hash-ref s "c")) (n (hash-ref s "n"))
+        (sig (hash-ref s "sig")) (sl (hash-ref s "sig-long")))
+    (cond
+      ((string=? fam "trend")
+       (v3-pos-trend c sig sl n (hash-ref pr "f") (hash-ref pr "s") (hash-ref pr "tin") (hash-ref pr "tout")
+                     (hash-ref pr "hold") (hash-ref pr "vf")))
+      ((string=? fam "donch")
+       (v3-pos-donch c sl sig n (list-ref (hash-ref s "hi") (hash-ref pr "ni")) (list-ref (hash-ref s "lo") (hash-ref pr "ni"))
+                     (list-ref (hash-ref s "hi") (hash-ref pr "mi")) (list-ref (hash-ref s "lo") (hash-ref pr "mi"))
+                     (hash-ref pr "N") (hash-ref pr "hold") (hash-ref pr "vf")))
+      ((string=? fam "tsmom")
+       (v3-pos-tsmom c sig sl n (hash-ref pr "L") (hash-ref pr "tin") (hash-ref pr "R") (hash-ref pr "vf")))
+      ((string=? fam "meanrev")
+       (v3-pos-meanrev c sig (hash-ref s "psum") n (hash-ref pr "n") (hash-ref pr "tin") (hash-ref pr "tout")
+                       (hash-ref pr "hmax") (hash-ref pr "tf")))
+      (else (make-vector n 0)))))
+
+;; ── pnl over bars [a, b) ──
+;; cost: hash "half" (half spread in price), "lot" (base units).
+;; Daily pnl in USD (one entry per trading day touched by [a, b)),
+;; total, max drawdown, units traded / lot (= number of one-lot fills).
+(define (v3-run s pos a b cost)
+  (let* ((c (hash-ref s "c")) (di (hash-ref s "day-idx"))
+         (half (hash-ref cost "half")) (lot (hash-ref cost "lot"))
+         (jpy (equal? (hash-ref s "quote") "JPY"))
+         (d0 (vector-ref di a)) (nd (+ 1 (- (vector-ref di (- b 1)) d0)))
+         (daily (make-vector nd 0.0)))
+    (let loop ((i a) (eq 0.0) (peak 0.0) (dd 0.0) (fills 0))
+      (if (>= i b)
+        (let ((dl (vector->list daily)))
+          (hash "daily" dl "sum" eq "max-dd" dd "fills" fills "days" nd))
+        (let* ((p0 (if (> i 0) (vector-ref pos (- i 1)) 0)) (p1 (vector-ref pos i))
+               (conv (if jpy (vector-ref c i) 1.0))
+               (mv (if (> i 0) (* p0 lot (- (vector-ref c i) (vector-ref c (- i 1)))) 0.0))
+               (tr (v3-abs (- p1 p0)))
+               (pnl (/ (- mv (* tr lot half)) conv))
+               (k (- (vector-ref di i) d0))
+               (eq2 (+ eq pnl)) (pk (if (> eq2 peak) eq2 peak)))
+          (vector-set! daily k (+ (vector-ref daily k) pnl))
+          (loop (+ i 1) eq2 pk (if (> (- pk eq2) dd) (- pk eq2) dd) (+ fills tr)))))))
+
+(define V3-ANN (sqrt 252.0))
+(define (v3-sharpe-ann daily) (* V3-ANN (m-sharpe daily)))
+
+;; Score of params on [a, b): annualised daily Sharpe (search score),
+;; plus the objectives NSGA-II uses.
+(define (v3-eval s pr a b cost)
+  (let* ((r (v3-run s (v3-positions s pr) a b cost))
+         (years (/ (hash-ref r "days") 252.0)))
+    (hash "params" pr "sharpe" (v3-sharpe-ann (hash-ref r "daily")) "sum" (hash-ref r "sum")
+          "max-dd" (hash-ref r "max-dd") "fills-per-year" (/ (hash-ref r "fills") (max years 0.01))
+          "calmar" (/ (hash-ref r "sum") (max (hash-ref r "max-dd") 1.0)) "daily" (hash-ref r "daily"))))
+
+;; ── search ──
+(require "std/search" all:)
+(require "std/pareto" all:)
+(require "std/evo-meta" all:)
+(require "std/evo-core" all:)
+(require "std/hyper-heuristic" all:)
+
+(define V3-WORKERS 8)
+(define (v3-chunk xs k)
+  (let* ((n (length xs)) (size (max 1 (quotient (+ n k -1) k))))
+    (let loop ((ys xs) (cur (list)) (c 0) (acc (list)))
+      (cond ((null? ys) (reverse (if (null? cur) acc (cons (reverse cur) acc))))
+            ((= c size) (loop ys (list) 0 (cons (reverse cur) acc)))
+            (else (loop (cdr ys) (cons (car ys) cur) (+ c 1) acc))))))
+(define (v3-par-map f xs)
+  (if (< (length xs) 2) (map f xs)
+    (apply append (map fiber:join (map (lambda (part) (fiber:spawn (lambda () (map f part)))) (v3-chunk xs V3-WORKERS))))))
+
+(define (v3-take xs n) (if (or (null? xs) (<= n 0)) (list) (cons (car xs) (v3-take (cdr xs) (- n 1)))))
+(define V3-BOUNDS5 (list (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0) (list 0.0 1.0)))
+
+;; One scored candidate (IS only): drops the daily series to keep memory low.
+(define (v3-score s fam a b cost)
+  (lambda (g)
+    (let ((e (v3-eval s (v3-decode fam g) a b cost)))
+      (hash "genome" g "params" (hash-ref e "params") "sharpe" (hash-ref e "sharpe")
+            "sr-daily" (m-sharpe (hash-ref e "daily"))
+            "sum" (hash-ref e "sum") "max-dd" (hash-ref e "max-dd")
+            "fills-per-year" (hash-ref e "fills-per-year") "calmar" (hash-ref e "calmar")))))
+
+;; es: maximise IS annualised Sharpe. Returns best + history.
+(define (v3-search-es s fam a b cost budget seed)
+  (let ((fit (v3-score s fam a b cost)))
+    (let loop ((st (search:init "es" (hash "dim" 5 "pop" 16 "mu" 4 "lambda" 16 "sigma" 0.15 "bounds" V3-BOUNDS5 "seed" seed)))
+               (used 0) (hist (list)))
+      (if (>= used budget)
+        (let ((best (foldl (lambda (b x) (if (or (not b) (> (hash-ref x "sharpe") (hash-ref b "sharpe"))) x b)) #f hist)))
+          (hash "best" best "history" (reverse hist)))
+        (let* ((pend (v3-take (search:pending st) (- budget used)))
+               (rs (v3-par-map fit pend))
+               (st2 (foldl (lambda (s2 r) (search:step s2 (hash-ref r "sharpe"))) st rs)))
+          (loop st2 (+ used (length rs)) (append (reverse rs) hist)))))))
+
+;; nsga2: Sharpe (max), max drawdown (min), fills per year (min). The
+;; pick from the final front: best calmar among members with Sharpe > 0,
+;; else the best Sharpe.
+(define (v3-search-nsga s fam a b cost budget seed)
+  (let ((fit (v3-score s fam a b cost))
+        (st (nsga2:make (hash "dim" 5 "pop" 16 "bounds" (list (list 0.0 1.0)) "seed" seed
+                              "objectives" (list "sharpe" "dd" "fills") "dirs" (list "max" "min" "min")))))
+    (let loop ((used 0) (hist (list)))
+      (if (>= used budget)
+        (let* ((key (lambda (g) (json-encode g)))
+               (front (map (lambda (e) (key (evo:candidate-genome (hash-ref e "cand")))) (nsga2:front st)))
+               (fm (filter (lambda (x) (pair? (filter (lambda (k) (string=? k (key (hash-ref x "genome")))) front))) hist))
+               (pos (filter (lambda (x) (> (hash-ref x "sharpe") 0.0)) fm))
+               (pick (if (pair? pos)
+                       (foldl (lambda (b x) (if (or (not b) (> (hash-ref x "calmar") (hash-ref b "calmar"))) x b)) #f pos)
+                       (foldl (lambda (b x) (if (or (not b) (> (hash-ref x "sharpe") (hash-ref b "sharpe"))) x b)) #f hist))))
+          (hash "best" pick "history" (reverse hist) "front" (length fm)))
+        (let* ((cs (nsga2:ask st 16))
+               (rs (v3-par-map (lambda (c) (fit (evo:candidate-genome c))) cs)))
+          (nsga2:tell! st cs (map (lambda (r) (hash "objectives" (hash "sharpe" (hash-ref r "sharpe") "dd" (hash-ref r "max-dd")
+                                                                       "fills" (hash-ref r "fills-per-year"))
+                                                     "constraints" (hash)))
+                                  rs))
+          (loop (+ used (length rs)) (append (reverse rs) hist)))))))

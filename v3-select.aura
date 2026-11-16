@@ -1,0 +1,119 @@
+;; v3 selection from out/v3-runs-full.json (train range only).
+;;
+;; Pre-committed deploy rule (written before the searches finished):
+;;   "recent race": tune:race over the 16 fixed procedures (tf x family
+;;   x search algorithm) on the monthly pnl of the validation years seen
+;;   so far; the winner's config fitted on all years before is traded
+;;   in the next year only if its validation mean is > 0 and its
+;;   validation deflated Sharpe (N = 16 procedures) is > 0; else flat.
+;; Its walk-forward estimate is the same rule run inside train: 2021
+;; has no history (flat), 2022 races on 2021, 2023 on 2021-2022. The
+;; deployed config is the rule run on 2021-2023 with the "full" fits.
+;; Also reported: every fixed procedure, "best in-sample" (highest IS
+;; Sharpe, traded only if it beats the deflation benchmark of that
+;; fold's trials), and flat.
+(require "lib/v3")
+(require "std/fs" all:)
+
+(define runs (json-parse (read-file "out/v3-runs-full.json")))
+(define (range-list a b) (if (>= a b) (list) (cons a (range-list (+ a 1) b))))
+(define PROCS (let loop ((rs runs) (acc (list)))
+                (if (null? rs) (reverse acc)
+                  (loop (cdr rs) (if (member (hash-ref (car rs) "proc") acc) acc (cons (hash-ref (car rs) "proc") acc))))))
+(define VAL-YEARS (list "2021" "2022" "2023"))
+(define (run-of proc fold) (car (filter (lambda (r) (and (string=? (hash-ref r "proc") proc) (string=? (hash-ref r "fold") fold))) runs)))
+
+;; monthly sums of a run's validation days: list of (month . sum)
+(define (monthly r)
+  (let loop ((ds (hash-ref r "val-daily")) (ms (hash-ref r "val-months")) (acc (list)))
+    (if (null? ds) (reverse acc)
+      (if (and (pair? acc) (string=? (car (car acc)) (car ms)))
+        (loop (cdr ds) (cdr ms) (cons (cons (car ms) (+ (cdr (car acc)) (car ds))) (cdr acc)))
+        (loop (cdr ds) (cdr ms) (cons (cons (car ms) (car ds)) acc))))))
+(define (months-of years) (apply append (map (lambda (y) (map (lambda (m) (string-append y "-" (if (< m 10) "0" "") (number->string m))) (range-list 1 13))) years)))
+(define (proc-month proc mon) ; monthly pnl of a procedure's validation run covering mon
+  (let* ((r (run-of proc (substring mon 0 4))) (hit (assoc mon (monthly r)))) (if hit (cdr hit) 0.0)))
+(define (proc-daily proc years) (apply append (map (lambda (y) (hash-ref (run-of proc y) "val-daily")) years)))
+
+;; the race over procs on the given validation years; returns (winner . info)
+(define (race years)
+  (let* ((mons (months-of years))
+         (r (tune:race (map (lambda (p) (hash "name" p)) PROCS)
+              (hash "instances" mons "seeds" (list 1)
+                    "evaluate" (lambda (cfg inst seed) (proc-month (hash-ref cfg "name") inst))
+                    "alpha" 0.05 "sense" "max" "batch" 12 "min-instances" 6)))
+         (w (hash-ref r "winner"))
+         (rank (hash-ref r "ranking"))
+         (winner (cond ((string? w) w)
+                       ((and (pair? rank) (string? (car rank))) (car rank))
+                       ((and (pair? rank) (hash? (car rank))) (hash-ref (car rank) "name"))
+                       (else (car PROCS))))
+         (daily (proc-daily winner years))
+         (srs (map (lambda (p) (m-sharpe (proc-daily p years))) PROCS))
+         (d (m-deflated daily srs)))
+    (hash "winner" winner "years" years "val-mean" (m-mean daily) "val-sum" (m-sum daily)
+          "deflated" (hash-ref d "deflated") "dsr" (hash-ref d "dsr")
+          "trade" (and (> (m-mean daily) 0.0) (> (hash-ref d "deflated") 0.0))
+          "evaluations" (hash-ref r "evaluations"))))
+
+;; walk-forward of the deploy rule inside train
+(define (recent-fold y)
+  (cond ((string=? y "2021") (hash "year" y "trade" #f "why" "no history" "daily" (map (lambda (x) 0.0) (hash-ref (run-of (car PROCS) y) "val-daily"))))
+        (else (let* ((prev (if (string=? y "2022") (list "2021") (list "2021" "2022")))
+                     (rc (race prev))
+                     (daily (if (hash-ref rc "trade") (hash-ref (run-of (hash-ref rc "winner") y) "val-daily")
+                              (map (lambda (x) 0.0) (hash-ref (run-of (car PROCS) y) "val-daily")))))
+                (hash "year" y "trade" (hash-ref rc "trade") "winner" (hash-ref rc "winner")
+                      "race-val-sum" (hash-ref rc "val-sum") "race-deflated" (hash-ref rc "deflated") "daily" daily)))))
+(define recent (map recent-fold VAL-YEARS))
+
+;; best in-sample per fold
+(define (bestis-fold y)
+  (let* ((rs (filter (lambda (r) (string=? (hash-ref r "fold") y)) runs))
+         (best (foldl (lambda (b r) (if (or (not b) (> (hash-ref r "is-sharpe") (hash-ref b "is-sharpe"))) r b)) #f rs))
+         (srs (apply append (map (lambda (r) (hash-ref r "trial-srs")) rs)))
+         (sr0 (m-sr0 (length srs) (m-var srs)))
+         (trade (> (hash-ref best "is-sr-daily") sr0)))
+    (hash "year" y "proc" (hash-ref best "proc") "trade" trade "is-sr-daily" (hash-ref best "is-sr-daily") "sr0" sr0
+          "daily" (if (and trade (not (string=? y "full"))) (hash-ref best "val-daily") (map (lambda (x) 0.0) (if (string=? y "full") (list) (hash-ref best "val-daily")))))))
+(define bestis (map bestis-fold (append VAL-YEARS (list "full"))))
+
+(define (summ name daily per-year)
+  (let ((g (tune:gate daily (map (lambda (x) 0.0) daily) (hash "alpha" 0.05 "sense" "max"))))
+    (hash "name" name "sum" (m-round (m-sum daily) 1) "sharpe" (m-round (v3-sharpe-ann daily) 2)
+          "t-vs-flat" (m-round (hash-ref g "t") 2) "per-year" per-year)))
+(define table
+  (append
+    (map (lambda (p) (summ p (proc-daily p VAL-YEARS)
+                           (map (lambda (y) (list y (m-round (hash-ref (run-of p y) "val-sum") 1)
+                                                  (m-round (hash-ref (run-of p y) "val-fills-per-year") 0))) VAL-YEARS)))
+         PROCS)
+    (list (summ "recent-race (deploy rule)" (apply append (map (lambda (f) (hash-ref f "daily")) recent))
+                (map (lambda (f) (list (hash-ref f "year") (if (hash-ref f "trade") (hash-ref f "winner") "flat") (m-round (m-sum (hash-ref f "daily")) 1))) recent))
+          (summ "best-in-sample" (apply append (map (lambda (f) (hash-ref f "daily")) (v3-take bestis 3)))
+                (map (lambda (f) (list (hash-ref f "year") (if (hash-ref f "trade") (hash-ref f "proc") "flat") (m-round (m-sum (hash-ref f "daily")) 1))) (v3-take bestis 3))))))
+
+;; the deploy decision on all of train
+(define final-race (race VAL-YEARS))
+(define deploy-proc (hash-ref final-race "winner"))
+(define deploy-run (run-of deploy-proc "full"))
+(define all-trial-srs (apply append (map (lambda (r) (hash-ref r "trial-srs")) runs)))
+
+(define out
+  (hash "procs" PROCS "table" table "recent" (map (lambda (f) (hash-set f "daily" (m-round (m-sum (hash-ref f "daily")) 1))) recent)
+        "best-in-sample" (map (lambda (f) (hash-set f "daily" (m-round (m-sum (hash-ref f "daily")) 1))) bestis)
+        "final-race" final-race
+        "deploy" (hash "proc" deploy-proc "trade" (hash-ref final-race "trade") "tf" (hash-ref deploy-run "tf")
+                       "fam" (hash-ref deploy-run "fam") "params" (hash-ref deploy-run "params") "genome" (hash-ref deploy-run "genome")
+                       "is-sharpe" (hash-ref deploy-run "is-sharpe") "is-sum" (hash-ref deploy-run "is-sum")
+                       "is-fills-per-year" (hash-ref deploy-run "is-fills-per-year"))
+        "trials" (hash "searches" (length runs) "candidates" (length all-trial-srs)
+                       "trial-sr-var" (m-var all-trial-srs) "procedures" (length PROCS))))
+(write-file "out/v3-select.json" (json-encode out))
+(for-each (lambda (r) (display "SEL ") (display (hash->list r)) (newline)) table)
+(for-each (lambda (f) (display "SEL recent ") (display (hash->list (hash-set f "daily" (m-round (m-sum (hash-ref f "daily")) 1)))) (newline)) recent)
+(display "SEL final-race ") (display (hash->list final-race)) (newline)
+(display "SEL deploy ") (display (hash->list (hash-ref out "deploy"))) (newline)
+(display "SEL deploy-params ") (display (hash->list (hash-ref deploy-run "params"))) (newline)
+(display "SEL trials ") (display (hash->list (hash-ref out "trials"))) (newline)
+(display "V3_SELECT_OK") (newline)
