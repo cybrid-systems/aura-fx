@@ -1,0 +1,143 @@
+;; Frozen real-data check v2 (frozen/v2.json): Dukascopy EUR/USD hourly.
+;;
+;; The pool, the selector menu and the detector parameters are the ones
+;; frozen in v1; v2 adds real costs (spread, lot), the train / holdout
+;; split by date, the per-period report and an after-the-fact segment
+;; labelling for scoring the regime-change detector. The holdout is read
+;; once, after the freeze commit (scripts/frozen2.sh checks the hashes).
+
+(require "lib/frozen")
+(require "std/string" all:)
+
+;; Mid closes of the CSV "time_utc,bid,ask,mid" as (time . mid) pairs.
+(define (fz2-load path)
+  (let ((lines (filter (lambda (l) (> (string-length l) 0)) (string-split (read-file path) "\n"))))
+    (map (lambda (l) (let ((f (string-split l ","))) (cons (car f) (string->number (list-ref f 3)))))
+         (cdr lines))))
+
+;; After-the-fact label of one 40-bar segment of prices: efficiency
+;; ratio of the whole segment below cut -> "noise", else "up" / "down"
+;; by the sign of the net move. Only used to score the detector.
+(define (fz2-seg-label ps cut)
+  (let loop ((xs ps) (path 0.0))
+    (if (null? (cdr xs))
+      (let* ((net (- (car xs) (car ps))) (an (if (< net 0) (- net) net)))
+        (if (or (<= path 0.0) (< (/ an path) cut)) "noise" (if (>= net 0.0) "up" "down")))
+      (let ((d (- (cadr xs) (car xs))))
+        (loop (cdr xs) (+ path (if (< d 0) (- d) d)))))))
+
+(define (fz2-chunk xs n)
+  (let loop ((xs xs) (acc (list)))
+    (if (< (length (take-n xs n)) n) (reverse acc)
+      (loop (list-tail xs n) (cons (take-n xs n) acc)))))
+
+;; Consecutive tapes of TAPE-SEG * TAPE-SEGS bars from the rows with
+;; lo <= time < hi (ISO strings); a partial last tape is dropped.
+(define (fz2-tapes rows lo hi tag cut)
+  (let* ((sel (filter (lambda (r) (and (not (string<? (car r) lo)) (string<? (car r) hi))) rows))
+         (len (* TAPE-SEG TAPE-SEGS))
+         (chunks (fz2-chunk sel len)))
+    (map (lambda (ch)
+           (let* ((ps (map cdr ch))
+                  (labels (map (lambda (seg) (fz2-seg-label seg cut)) (fz2-chunk ps TAPE-SEG)))
+                  (t (tape-build (string-append tag "-" (car (car ch))) labels ps)))
+             (hash-set t "times" (list->vector (map car ch)))))
+         chunks)))
+
+;; Test windows in time order, each with a global order key "w" so the
+;; online regime selector only learns from windows that have closed.
+(define (fz2-test-wins tapes ws)
+  (let loop ((ts tapes) (k 0) (acc (list)))
+    (if (null? ts) (reverse acc)
+      (loop (cdr ts) (+ k 1)
+            (append (reverse (map (lambda (wn) (hash-set (hash-set wn "w" (+ (* k 100) (hash-ref wn "w")))
+                                                         "t0" (vector-ref (hash-ref (car ts) "times") (hash-ref wn "from"))))
+                                  (wins (list (car ts)) ws)))
+                    acc)))))
+
+(define (fz2-gate xs base alpha)
+  (let ((g (tune:gate xs base (hash "alpha" alpha "sense" "max"))))
+    (list "t" (fz-r2 (hash-ref g "t")) "keep" (hash-ref g "keep"))))
+
+(define (fz2-idx xs is) (map (lambda (i) (list-ref xs i)) is))
+
+;; Train on the train tapes, test once on the holdout tapes.
+(define (fz2-select spec train-tapes test-tapes)
+  (let* ((sp (hash-ref spec "selector"))
+         (alpha (hash-ref sp "gate-alpha"))
+         (pool (fz-pool spec))
+         (names (map (lambda (m) (hash-ref m "name")) pool))
+         (rules (foldl (lambda (h m) (hash-set h (hash-ref m "name") (member-closure m))) (hash) pool))
+         (train (wins train-tapes (hash-ref sp "windows")))
+         (test (fz2-test-wins test-tapes (hash-ref sp "windows")))
+         (train-pnls (par-map (lambda (wn) (fz-window-pnls names rules wn)) train))
+         (test-pnls (par-map (lambda (wn) (fz-window-pnls names rules wn)) test))
+         (train-sum (lambda (n) (m-sum (map (lambda (h) (hash-ref h n)) train-pnls))))
+         (test-sum (lambda (n) (m-sum (map (lambda (h) (hash-ref h n)) test-pnls))))
+         (sbs (car (foldl (lambda (b n) (let ((v (train-sum n))) (if (or (not b) (> v (cdr b))) (cons n v) b))) #f names)))
+         (sbs-oos (map (lambda (h) (hash-ref h sbs)) test-pnls))
+         ;; the best member that trades (not "flat") on train, as a second baseline
+         (act (car (foldl (lambda (b n) (let ((v (train-sum n))) (if (or (not b) (> v (cdr b))) (cons n v) b)))
+                          #f (filter (lambda (n) (not (string=? n "flat"))) names))))
+         (act-oos (map (lambda (h) (hash-ref h act)) test-pnls))
+         (oracle (map (lambda (h) (apply max (map (lambda (n) (hash-ref h n)) names))) test-pnls))
+         (cuts (regime-cuts (map win-features train)))
+         (sel (regime-fit names (map (lambda (wn h) (cons (regime-cell cuts (win-features wn)) h)) train train-pnls) sbs))
+         (rg-oos (fz-regime-online sel cuts test test-pnls))
+         (fit (bar-fit-auto names rules sbs train par-map))
+         (bar-oos (hash-ref (eval-rule (bar-composite (hash-ref fit "table") rules) test) "pnls"))
+         (bounds (hash-ref spec "periods"))
+         (periods (let loop ((bs bounds) (acc (list)))
+                    (if (null? (cdr bs)) (reverse acc)
+                      (let* ((lo (car bs)) (hi (cadr bs))
+                             (is (filter (lambda (i) (let ((t0 (hash-ref (list-ref test i) "t0")))
+                                                       (and (not (string<? t0 lo)) (string<? t0 hi))))
+                                         (range-list 0 (length test))))
+                             (s (fz2-idx sbs-oos is)) (b (fz2-idx bar-oos is)) (r (fz2-idx rg-oos is)))
+                        (loop (cdr bs)
+                              (cons (hash "from" lo "to" hi "windows" (length is)
+                                          "sbs" (fz-r2 (m-sum s)) "bar" (fz-r2 (m-sum b)) "regime" (fz-r2 (m-sum r))
+                                          "bar-vs-sbs" (if (> (length is) 2) (fz2-gate b s alpha) #f))
+                                    acc)))))))
+    (hash "train-windows" (length train) "test-windows" (length test)
+          "train-tapes" (length train-tapes) "test-tapes" (length test-tapes)
+          "sbs" sbs
+          "train-sums" (map (lambda (n) (list n (fz-r2 (train-sum n)))) names)
+          "test-sums" (map (lambda (n) (list n (fz-r2 (test-sum n)))) names)
+          "sbs-sum" (fz-r2 (m-sum sbs-oos)) "bar-sum" (fz-r2 (m-sum bar-oos))
+          "regime-sum" (fz-r2 (m-sum rg-oos)) "oracle-sum" (fz-r2 (m-sum oracle))
+          "bar-vs-sbs" (fz2-gate bar-oos sbs-oos alpha)
+          "best-active" act "best-active-sum" (fz-r2 (m-sum act-oos))
+          "bar-vs-best-active" (fz2-gate bar-oos act-oos alpha)
+          "regime-vs-sbs" (fz2-gate rg-oos sbs-oos alpha)
+          "bar-def" (hash-ref fit "def") "bar-train" (fz-r2 (hash-ref fit "train"))
+          "bar-table" (map (lambda (c) (hash-ref (hash-ref fit "table") c)) BAR-CELLS)
+          "periods" periods)))
+
+;; Detector with the frozen cut / k / horizon against the after-the-fact
+;; segment labels. Also the hit and false rates that random alarms at the
+;; same rate would get (coverage = share of bars within horizon after a
+;; change).
+(define (fz2-detect spec tapes)
+  (let* ((dp (hash-ref spec "detector"))
+         (cut (hash-ref dp "cut")) (k (hash-ref dp "k")) (hz (hash-ref dp "horizon"))
+         (from (hash-ref dp "from-bar"))
+         (rs (par-map (lambda (t)
+                        (let* ((n (tape-n t))
+                               (chs (filter (lambda (c) (>= c from)) (regime-changes t TAPE-SEG)))
+                               (sc (ph-score (rc-alarms cut k t from n) chs hz))
+                               (cov (length (filter (lambda (i) (pair? (filter (lambda (c) (and (>= i c) (< i (+ c hz)))) chs)))
+                                                    (range-list from n)))))
+                          (hash-set sc "covered" cov)))
+                      tapes))
+         (sum (lambda (key) (apply + (map (lambda (r) (hash-ref r key)) rs))))
+         (bars (apply + (map (lambda (t) (- (tape-n t) from)) tapes)))
+         (alarms (sum "alarms")) (changes (sum "changes"))
+         (rate (/ (* 1.0 alarms) (max bars 1))))
+    (hash "tapes" (length tapes) "bars" bars "changes" changes "hits" (sum "hits")
+          "alarms" alarms "false" (sum "false")
+          "hit-rate" (fz-r2 (/ (* 1.0 (sum "hits")) (max changes 1)))
+          "false-share" (fz-r2 (/ (* 1.0 (sum "false")) (max alarms 1)))
+          "alarms-per-1000-bars" (fz-r2 (* 1000.0 rate))
+          "random-hit-rate" (fz-r2 (- 1.0 (expt (- 1.0 rate) hz)))
+          "random-false-share" (fz-r2 (- 1.0 (/ (* 1.0 (sum "covered")) (max bars 1)))))))
