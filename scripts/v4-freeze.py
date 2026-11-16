@@ -39,6 +39,18 @@ def main():
         runs[f"{d['fold']}-{d['arm']}"] = d
     assert len(runs) == 12, len(runs)
     asif = sel["as-if"]
+    # multiple-testing count: every evaluated rule of the 12 runs (GP children,
+    # ES tuning points, single-feature probes, gated LLM proposals) plus the
+    # LLM proposals refused before evaluation, plus the LLM proposals made in
+    # the train-only smoke runs before the protocol commit (counted, not used).
+    smoke_props, smoke_calls = 108, 29
+    trials = dict(sel["trials"])
+    trials["evaluated"] = trials["candidates"]
+    trials["llm-refused"] = sel["counts"]["llm-bad"]
+    trials["smoke-llm-proposals"] = smoke_props
+    trials["smoke-llm-calls"] = smoke_calls
+    trials["llm-calls-total"] = sel["counts"]["llm-calls"] + smoke_calls
+    trials["candidates"] = trials["evaluated"] + trials["llm-refused"] + smoke_props
     rule = lambda x: x["rule"] if x else "flat"
     configs = [{"name": "deploy", "rule": sel["deploy"]["rule"]}] + \
               [{"name": k, "rule": rule(asif[k])} for k in ("hybrid-champion", "hybrid-best", "gp-champion", "llm-champion")]
@@ -57,7 +69,7 @@ def main():
                        "note": "already seen; reference only"} for n, t, s, v in REF],
         "deploy": sel["deploy"],
         "configs": configs,
-        "trials": sel["trials"],
+        "trials": trials,
         "counts": sel["counts"],
         "as-if": asif,
     }
@@ -71,7 +83,7 @@ def main():
             fh.write(f"{sha(f)}  {f}\n")
     print("deploy", sel["deploy"]["rule"], "trade", sel["deploy"]["trade"])
     print("configs", json.dumps(configs))
-    print("trials", sel["trials"])
+    print("trials", trials)
 
 
 if __name__ == "__main__":
