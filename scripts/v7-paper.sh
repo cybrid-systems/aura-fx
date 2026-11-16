@@ -13,7 +13,10 @@ if [ -n "${FXCM_LIVE:-}" ]; then
   exit 1
 fi
 
-sha256sum -c frozen/v7.sha256
+# Original freeze record (29dd074): the protocol file itself must not have changed.
+grep '  frozen/v7.json$' frozen/v7.sha256 | sha256sum -c
+# v7.1 is a download-only patch (see frozen/v7.1.json). This is the runnable set.
+sha256sum -c frozen/v7.1.sha256
 
 FROM=2023-01
 TO="$(date -u +%Y-%m)"

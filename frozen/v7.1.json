@@ -1,0 +1,41 @@
+{
+ "base": "frozen-v7",
+ "base-commit": "29dd074e8a721682719bc8975b27f52ca9925834",
+ "base-v7-json-sha256": "6398f50f824c5e77574b5933f1f2c64b4708cb14b4fd9ef295f0343e89d045e7",
+ "changes": [
+  {
+   "commits": [
+    "f052ca7",
+    "1fb69e0"
+   ],
+   "effect": "download robustness only; does not change decoded mid scale, range checks, bar aggregation, carry differentials, spreads, slippage, rollover, or the Demo rule",
+   "file": "scripts/v7-fetch.py",
+   "sha256-at-freeze": "f6d632cc1856db5ec3e4a96873c82cc1b292622d80e4f6cb199c77552b523939",
+   "sha256-v7.1": "e0fa5c299e8d0baad4c94b20e584f00b3750a2943f6aae431d5af5ad98dd5ee3"
+  },
+  {
+   "effect": "checks the original frozen/v7.json hash from frozen/v7.sha256, then checks the runnable set against frozen/v7.1.sha256",
+   "file": "scripts/v7-paper.sh",
+   "sha256-at-freeze": "c0ad71e75615ec01669de00d4374d2316e3c108cd39770d04aebcefdc4275a93",
+   "sha256-v7.1": "dc9eae8662c9dfe526206aa7771867ad2910fbf439cf6d08d1354f9f084c5528"
+  },
+  {
+   "effect": "restored to the original 29dd074 freeze record",
+   "file": "frozen/v7.sha256",
+   "sha256-at-quiet-head-1fb69e0": "6627958d8c5e4c459c6a38d6d0834a70c539e8000b12e83363623f685a86b4b0",
+   "sha256-restored": "12388f14d91079e3ef276a0bc2a8b82e603c195c28d41887fd2fe95131f06acd"
+  }
+ ],
+ "costs-unchanged": true,
+ "eval-unchanged": true,
+ "kind": "freeze-patch",
+ "note": "Download-only patch. frozen/v7.json (signals, costs, basket, eval/Demo gates, trial count) is byte-identical to the original freeze. lib/v7.aura, v7-paper.aura, v7-monitor.aura, scripts/v7-market.py, scripts/v7-book.py, scripts/v7-eval.py, and scripts/v7-freeze.py are also unchanged.",
+ "prior-quiet-hash-updates": "f052ca7 and 1fb69e0 overwrote the fetch.py line inside frozen/v7.sha256 in place. That was a silent change to the freeze record. This patch restores frozen/v7.sha256 to the exact 29dd074 bytes and records the runnable hashes in frozen/v7.1.sha256 instead.",
+ "runnable-hashes": "frozen/v7.1.sha256",
+ "signals-unchanged": true,
+ "version": "frozen-v7.1",
+ "why": [
+  "f052ca7: scripts/v7-fetch.py could not parse. An unused variable was removed and the H1 write loop was left over-indented. The first post-freeze run failed at import, before any v7 basket download or official booking.",
+  "1fb69e0: Dukascopy had not published the current UTC month (2026-11 returned HTTP 404). The original fetcher used curl -f and retried 30 times, then aborted. The patch records the HTTP status, uses HTTP/1.1, and skips only the current unpublished month; any historical 404 still fails hard."
+ ]
+}
