@@ -7,3 +7,4 @@ __pycache__/
 .env.*
 !.env.example
 data/raw-dukascopy/
+data/raw-dukascopy-m1/

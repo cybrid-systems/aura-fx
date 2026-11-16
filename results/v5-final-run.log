@@ -1,0 +1,47 @@
+frozen/v5.json: OK
+frozen/v5-select.json: OK
+lib/v5.aura: OK
+lib/metrics.aura: OK
+lib/drift.aura: OK
+lib/engine.aura: OK
+v5-final.aura: OK
+scripts/v5-final.sh: OK
+scripts/v5-fetch.py: OK
+scripts/v5-prep.py: OK
+scripts/v5-report.py: OK
+scripts/v5-select.py: OK
+data/v4/rates-final.csv: OK
+data/v3/gbpusd-final-d1.csv: OK
+fetched 200/1070 237s
+fetched 400/1070 444s
+fetched 600/1070 620s
+fetched 800/1070 794s
+fetched 1000/1070 963s
+FETCH_OK EURGBP final m5-bars=255388 from=1685577600 to=1793393700
+PREP_OK data/v5/final-eurgbp days=889 from=2023-06-01 to=2026-10-30 configs=96
+PREP_OK data/v5/final2x-eurgbp days=889 from=2023-06-01 to=2026-10-30 configs=96
+V5F x1 as-if gate-N5-W60 sum=812.98 switches=6 heals=4 fails=0 ms=9338
+V5F x2 as-if gate-N5-W60 sum=-336.32 switches=8 heals=8 fails=0 ms=15649
+V5_FINAL_OK
+METER rc=0 wall=42.6s cpu=39.4s cores=0.92 peak_rss=376MB
+V5R x1:as-if gate-N5-W60 {'sum': 812.98, 'sharpe-ann': 0.706, 't-vs-flat': 1.21, 'max-dd': 685.79, 'days': 737, 'dsr-all': 0.0, 'sr0-all': 0.6821, 'dsr-2': 0.007, 'switches': 6, 'heals': 4, 'swap-fail': 0, 'decisions': 150, 'switch-cost': 6.92} {'2024H1': 472.55, '2024H2': -181.37, '2025H1': -134.65, '2025H2': 353.23, '2026H1': 361.98, '2026H2': -58.76}
+V5R x1:fixed h4-mr1440-1.0 {'sum': -153.19, 'sharpe-ann': -0.184, 't-vs-flat': -0.31, 'max-dd': 608.67, 'days': 737, 'dsr-all': 0.0, 'sr0-all': 0.6821, 'dsr-2': 0.0} {'2024H1': -2.34, '2024H2': 50.91, '2025H1': -436.34, '2025H2': 201.66, '2026H1': 188.81, '2026H2': -155.89}
+V5R x1:flat {'sum': 0.0, 'sharpe-ann': 0.0, 't-vs-flat': 0.0, 'max-dd': 0.0, 'days': 737} {'2024H1': 0.0, '2024H2': 0.0, '2025H1': 0.0, '2025H2': 0.0, '2026H1': 0.0, '2026H2': 0.0}
+V5R x2:as-if gate-N5-W60 {'sum': -336.32, 'sharpe-ann': -1.29, 't-vs-flat': -2.21, 'max-dd': 367.47, 'days': 737, 'dsr-all': 0.0, 'sr0-all': 0.6821, 'dsr-2': 0.0, 'switches': 8, 'heals': 8, 'swap-fail': 0, 'decisions': 148, 'switch-cost': 23.13} {'2024H1': -79.72, '2024H2': 0.0, '2025H1': -221.98, '2025H2': 20.61, '2026H1': -55.23, '2026H2': 0.0}
+V5R x2:fixed h4-mr1440-1.0 {'sum': -299.89, 'sharpe-ann': -0.362, 't-vs-flat': -0.62, 'max-dd': 657.09, 'days': 737, 'dsr-all': 0.0, 'sr0-all': 0.6821, 'dsr-2': 0.0} {'2024H1': -23.18, '2024H2': 21.9, '2025H1': -458.77, '2025H2': 174.54, '2026H1': 160.62, '2026H2': -175.0}
+V5R x2:flat {'sum': 0.0, 'sharpe-ann': 0.0, 't-vs-flat': 0.0, 'max-dd': 0.0, 'days': 737} {'2024H1': 0.0, '2024H2': 0.0, '2025H1': 0.0, '2025H2': 0.0, '2026H1': 0.0, '2026H2': 0.0}
+V5R freq x1 m5 {'gross': -42414.3, 'cost': 246002.5, 'rollover': -4159.8, 'net': -292576.7, 'entries': 125040, 'net-positive': 5, 'gross-positive': 8, 'rules': 24}
+V5R freq x1 m15 {'gross': -27864.7, 'cost': 178184.4, 'rollover': -4042.6, 'net': -210091.8, 'entries': 90567, 'net-positive': 1, 'gross-positive': 9, 'rules': 24}
+V5R freq x1 h1 {'gross': -18896.7, 'cost': 97267.3, 'rollover': -3838.4, 'net': -120002.4, 'entries': 49426, 'net-positive': 0, 'gross-positive': 8, 'rules': 24}
+V5R freq x1 h4 {'gross': -6213.0, 'cost': 34103.9, 'rollover': -4219.0, 'net': -44535.8, 'entries': 17331, 'net-positive': 2, 'gross-positive': 10, 'rules': 24}
+V5R freq x2 m5 {'gross': -42414.3, 'cost': 492005.0, 'rollover': -4159.8, 'net': -538579.2, 'entries': 125040, 'net-positive': 0, 'gross-positive': 8, 'rules': 24}
+V5R freq x2 m15 {'gross': -27864.7, 'cost': 356368.7, 'rollover': -4042.6, 'net': -388276.1, 'entries': 90567, 'net-positive': 0, 'gross-positive': 9, 'rules': 24}
+V5R freq x2 h1 {'gross': -18896.7, 'cost': 194534.5, 'rollover': -3838.4, 'net': -217269.6, 'entries': 49426, 'net-positive': 0, 'gross-positive': 8, 'rules': 24}
+V5R freq x2 h4 {'gross': -6213.0, 'cost': 68207.7, 'rollover': -4219.0, 'net': -78639.7, 'entries': 17331, 'net-positive': 0, 'gross-positive': 10, 'rules': 24}
+V5R latency x1:as-if gate-N5-W60 {'decisions': 150, 'dec-ms-mean': 58.39, 'dec-ms-max': 1676, 'dec-ms-p95': 74, 'swaps': 10, 'swap-ms-mean': 9.2, 'swap-ms-max': 13, 'run-ms': 9338}
+V5R latency x2:as-if gate-N5-W60 {'decisions': 148, 'dec-ms-mean': 103.58, 'dec-ms-max': 6032, 'dec-ms-p95': 84, 'swaps': 16, 'swap-ms-mean': 12.62, 'swap-ms-max': 22, 'run-ms': 15649}
+V5_REPORT_OK
+
+real	17m16.636s
+user	0m52.335s
+sys	0m2.098s

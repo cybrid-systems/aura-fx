@@ -1,0 +1,22 @@
+PREP_OK data/v5/train-eurusd days=1301 from=2019-01-02 to=2023-12-29 configs=96
+METER rc=0 wall=2.2s cpu=5.6s cores=2.49 peak_rss=216MB
+PREP_OK data/v5/train-gbpusd days=1301 from=2019-01-02 to=2023-12-29 configs=96
+METER rc=0 wall=2.1s cpu=5.3s cores=2.56 peak_rss=220MB
+METER rc=0 wall=109.5s cpu=100.8s cores=0.92 peak_rss=604MB
+METER rc=0 wall=129.6s cpu=121.4s cores=0.94 peak_rss=613MB
+METER rc=0 wall=148.6s cpu=140.6s cores=0.95 peak_rss=518MB
+METER rc=0 wall=158.2s cpu=148.2s cores=0.94 peak_rss=814MB
+METER rc=0 wall=189.4s cpu=180.8s cores=0.95 peak_rss=706MB
+METER rc=0 wall=193.9s cpu=185.0s cores=0.95 peak_rss=510MB
+METER rc=0 wall=213.2s cpu=203.6s cores=0.96 peak_rss=1004MB
+METER rc=0 wall=537.4s cpu=377.9s cores=0.70 peak_rss=1405MB
+V5S v1 race-N20-W120 {'sum': 2865.56, 'sharpe-ann': 0.815, 'days': 653} validation {'sum': -3458.59, 'sharpe-ann': -1.21, 'days': 520}
+V5S f1 h4-mom288-0.5 {'sum': 744.56, 'sharpe-ann': 0.2, 'days': 653} validation {'sum': -1506.01, 'sharpe-ann': -0.41, 'days': 520}
+V5S v* gate-N5-W60 {'sum': 2479.72, 'sharpe-ann': 0.427, 'days': 1173} deflated {'sr-daily': 0.0269, 'sr0': 0.6821, 'deflated': -0.6553, 'dsr': 0.0, 'n': 126}
+V5S f* h4-mr1440-1.0 {'sum': 1064.81, 'sharpe-ann': 0.179, 'days': 1173}
+V5S deploy flat trade False
+V5_SELECT_OK
+
+real	9m2.334s
+user	24m8.518s
+sys	0m21.490s
