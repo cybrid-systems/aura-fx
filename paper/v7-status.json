@@ -1,0 +1,133 @@
+{
+ "version": "frozen-v7",
+ "generated-at": "2026-11-16T22:28:26+08:00 (Asia/Shanghai)",
+ "now-utc": "2026-11-16T14:28:26Z",
+ "freeze-date": "2026-11-16",
+ "asif-from": "2024-01-01",
+ "latest-complete-day": "2026-10-30",
+ "official-days": 0,
+ "awaiting-official": true,
+ "note": "最新完整交易日在冻结日之前，官方账本尚无记录。冻结日前的 as-if 回放仅供参考，不计入纸面成绩。",
+ "primary": "carry-eq-d1",
+ "control": "carry-vix-20-d1",
+ "official": {
+  "1x": null,
+  "2x": null,
+  "flat": null
+ },
+ "as-if-reference": {
+  "label": "REFERENCE ONLY, not used for Demo decision or official paper performance",
+  "from": "2024-01-02",
+  "to": "2026-10-30",
+  "days": 736,
+  "1x": {
+   "carry-eq-d1": {
+    "sum": 4089.18,
+    "days": 736,
+    "sharpe-ann": 0.576,
+    "t-vs-flat": 0.98,
+    "max-dd": 4896.02,
+    "dsr": 0.39,
+    "deflated": -0.0104,
+    "sr-daily": 0.03628,
+    "sr0": 0.0467
+   },
+   "carry-vix-20-d1": {
+    "sum": -766.11,
+    "days": 736,
+    "sharpe-ann": -0.124,
+    "t-vs-flat": -0.21,
+    "max-dd": 5679.25,
+    "dsr": 0.07,
+    "deflated": -0.0545,
+    "sr-daily": -0.007817,
+    "sr0": 0.0467
+   }
+  },
+  "2x": {
+   "carry-eq-d1": {
+    "sum": 4074.86,
+    "days": 736,
+    "sharpe-ann": 0.574,
+    "t-vs-flat": 0.98,
+    "max-dd": 4896.02,
+    "dsr": 0.388,
+    "deflated": -0.0105,
+    "sr-daily": 0.036152,
+    "sr0": 0.0467
+   },
+   "carry-vix-20-d1": {
+    "sum": -1322.08,
+    "days": 736,
+    "sharpe-ann": -0.214,
+    "t-vs-flat": -0.37,
+    "max-dd": 5916.45,
+    "dsr": 0.051,
+    "deflated": -0.0601,
+    "sr-daily": -0.013478,
+    "sr0": 0.0467
+   }
+  }
+ },
+ "positions-preview": {
+  "day": "2026-10-30",
+  "note": "decided at this close; official book inherits them only if the day is on or after freeze-date",
+  "positions": {
+   "carry-eq-d1": {
+    "EURNOK": -1.0,
+    "EURSEK": 1.0,
+    "USDHUF": -1.0,
+    "EURHUF": -1.0,
+    "NZDJPY": 1.0,
+    "CADJPY": 1.0,
+    "CHFJPY": -1.0,
+    "EURNZD": 1.0
+   },
+   "carry-vix-20-d1": {
+    "EURNOK": -1.0,
+    "EURSEK": 1.0,
+    "USDHUF": -1.0,
+    "EURHUF": -1.0,
+    "NZDJPY": 1.0,
+    "CADJPY": 1.0,
+    "CHFJPY": -1.0,
+    "EURNZD": 1.0
+   }
+  }
+ },
+ "drift": {
+  "alarm": false,
+  "reason": "no official carry-eq-d1 1x rows yet",
+  "days": 0
+ },
+ "eval": {
+  "recommend-demo": false,
+  "decision-due": false,
+  "interim-look-due": false,
+  "calendar": {
+   "interim": "2027-02-16",
+   "first-decision": "2027-05-16",
+   "review-every-months": 3,
+   "min-official-days": 120
+  },
+  "primary": "carry-eq-d1",
+  "control": "carry-vix-20-d1",
+  "gates-1x": {},
+  "gates-2x": {},
+  "metrics-1x": null,
+  "metrics-2x": null,
+  "reason": "formal Demo review is not yet due (need 2027-05-16 and 120 official days); no official 1x primary days; no official 2x primary days",
+  "note": "control is reported separately and cannot by itself justify Demo; as-if and pre-freeze days are excluded"
+ },
+ "aura": "aura dev (7167490eacaf13b4af4f2376954b7265e4306f2f)",
+ "basket": [
+  "EURNOK",
+  "EURSEK",
+  "USDHUF",
+  "EURHUF",
+  "NZDJPY",
+  "CADJPY",
+  "CHFJPY",
+  "EURNZD"
+ ]
+}

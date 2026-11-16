@@ -1105,7 +1105,75 @@ Aura 用自编 main `7167490ea`（`/workspace/aura-src`，完整哈希 `7167490e
 - 日志里有 8 个货币对的 `FETCH_OK`、`RATES_OK`、两次 `PREP_OK`、两次 `V6_BLEND_OK`，以及 `unbound variable: cadddr`；**没有** `V6_FINAL_OK`。
 - `results/v6/select.json` 的 deploy.variant 是 `flat`。
 
+## v7：只做利差主信号的纸面跟踪（frozen-v7 / v7.1）
+
+v6 最终检验里，等权利差 `carry-eq-d1` 是最好的静态结果，但仍不够显著，部署规则是空仓。v7 不再搜索、不再调参，只把这套已经冻结的利差规则放到一组从没下载过的货币对上做**纸面跟踪**。不连 FXCM，不设 `FXCM_LIVE`，不下单。
+
+**提交顺序**：协议 `0ba96a8`（冻结日之前，篮子和 Demo 规则已写定）→ 冻结 `29dd074`（`frozen/v7.json` 与 `frozen/v7.sha256`，推送后才下载 8 个新货币对）→ `f052ca7` / `1fb69e0` 修了 `scripts/v7-fetch.py`，但这两次把新哈希写进了原来的 `frozen/v7.sha256`（不妥）→ **v7.1 冻结补丁** `68a8bf3`：把 `frozen/v7.sha256` 恢复成 `29dd074` 的原文，下载侧的可运行哈希单独记在 `frozen/v7.1.json` / `frozen/v7.1.sha256`。`frozen/v7.json` 始终是冻结时的那一份，信号、成本、评估规则都没有改。
+
+### 信号与参数
+
+- 主规则：`carry-eq-d1`（按上月政策利率差 `i_base - i_quote` 排序，多前一半、空后一半；奇数中间一张空仓）。参数沿用 v6 冻结值：手数 10,000，单边滑点 0.2 pip，隔夜在利差上再减 1% 年化，/360，周三记三晚。点值约定与 v6 相同：JPY 报价 0.01，其余（含 HUF/NOK/SEK）0.0001。
+- 对照：`carry-vix-20-d1`（前一日 VIX < 20 时等同权利差，否则空仓）。只报告，不能单独作为上 Demo 的理由。
+- 决策在 Aura 里算目标持仓，并用 `select:drift?` 看官方 1× 主规则的日盈亏；只告警，不改冻结参数，也不会 `swap!` / `heal!`。避开了 `cadddr`（aura#5313 仍开着，未重编 Aura）。用的是自编 main `7167490e`。
+
+### 跟踪篮子
+
+EURNOK、EURSEK、USDHUF、EURHUF、NZDJPY、CADJPY、CHFJPY、EURNZD。v2–v6 的原始缓存和已提交 CSV 里都没有这 8 对。USDPLN、USDCZK 在 Dukascopy 和 BIS 上都有数据，但不在 FXCM Malaysia Kos Sebaran 2024 年 6 月的点差表上，所以换成表里有的 EURHUF（63.6）和 EURNZD（4.1），只用这一个公布点差来源。换算辅助是已经看过的 USDNOK、USDSEK、USDJPY、NZDUSD（以及篮子里的 USDHUF 自己）；它们不是交易品种。
+
+点差（公布值，不是实测）：EURNOK 52.4、EURSEK 45.2、USDHUF 52.0、EURHUF 63.6、NZDJPY 2.3、CADJPY 2.5、CHFJPY 2.9、EURNZD 4.1。
+
+### 评估规则（冻结前提交，不能事后改）
+
+- 官方账本只记冻结日当天及之后的完整 D1（22:00 UTC 收盘之后）。第一天从空仓进场，不继承冻结前的持仓。冻结前的数据不能回填进官方成绩。
+- as-if 回放（2024-01-01 到冻结日前一天）写在 `paper/v7-asif-ledger.csv`，明确标成仅供参考，不算官方成绩，也不能用来建议 Demo。
+- 3 个月后只做中期观察，不能建议上 Demo。
+- 第一次正式评估：冻结日后满 6 个日历月，且官方交易日不少于 120 天（第一次是 2027-05-16）。之后每 3 个月再看一次。
+- 建议上 Demo 必须同时满足：主规则 `carry-eq-d1` 在 1× **和** 2× 成本下净盈亏 > 0、相对空仓的 t ≥ 1.96、deflated Sharpe > 0、DSR ≥ 0.95。试验数和 SR0 方差沿用 v6 冻结值（n=74，sr-var=0.0003708773236617051），因为这两条利差规则本来就在那 74 次试验里。任何一条不满足就继续纸面跟踪，不改参数，不建议 Demo。
+
+### v7.1 冻结补丁（下载侧，不改规则）
+
+`scripts/v7-fetch.py` 写在 `frozen/v7.sha256` 里，冻结后改它必须单独记录，不能悄悄改原来的哈希。
+
+- `f052ca7`：去掉无用变量时把写 H1 的循环缩进弄坏了，脚本不能解析。那一次发生在第一次下载之前。
+- `1fb69e0`：Dukascopy 当时还没有发布 2026-11（HTTP 404）。原脚本用 `curl -f` 重试 30 次后失败。补丁改为记录状态码、使用 HTTP/1.1，只跳过「当前 UTC 月且尚未发布」的文件；历史月份遇到 404 仍然直接失败。
+- `68a8bf3`：把 `frozen/v7.sha256` 恢复成 `29dd074` 的原文；可运行集合的哈希在 `frozen/v7.1.sha256`。`scripts/v7-paper.sh` 先核对原来的 `frozen/v7.json` 哈希，再核 v7.1。
+
+### 第一次运行（2026-11-16，Asia/Shanghai）
+
+冻结日是 2026-11-16。跑脚本时是当天 22:25（Asia/Shanghai；UTC 14:25），当天的 D1 还没收盘；而且 Dukascopy 的 2026-11 月文件是 404，最新完整交易日是 **2026-10-30**，仍在冻结日之前。
+
+- 哈希：`frozen/v7.json` 对得上原来的冻结记录；`frozen/v7.1.sha256` 全部 OK。
+- 官方账本 `paper/v7-ledger.csv` 只有表头，`official-days=0`，`awaiting-official=true`。这是按规则应有的结果，不是漏跑。
+- as-if 回放（仅供参考，2024-01-02 至 2026-10-30，736 个交易日）：`carry-eq-d1` 1× 净赚约 4,089 美元，t=0.98，DSR=0.39，deflated Sharpe 为负；2× 成本几乎一样（约 4,075）。对照 `carry-vix-20-d1` 1× 亏约 766。这些数字**不能**当作纸面成绩，也不能用来建议 Demo。
+- Aura 决策约 7 秒（约 0.45 核，峰值约 163 MB），监控约 0.1 秒；`select:drift?` 没有报警（还没有官方日）。没有 `cadddr` 错误。
+- VIX 公共序列仍只到 2026-09-22（和 v6 最终检验一样）。BIS 利率到 2026-10，够用到 10-30。
+- 同一脚本立刻重跑一遍：缓存命中，约 153 秒结束，官方仍是 0 天，as-if 仍是 736 天，`V7_PAPER_OK`。
+
+要建议上 Demo，还得等官方账本过完评估门。下一次能记账，最早是 Dukascopy 发布 2026-11、并且 2026-11-16 的 22:00 UTC 收盘已经发生之后。
+
+每天跑（建议 08:00 Asia/Shanghai，也就是 00:00 UTC，已过上一个 22:00 UTC 收盘）。main 没有分支保护，账本可以提交并推到 `paper/`：
+
+```sh
+cd /workspace/aura-fx
+git checkout main
+git pull --ff-only
+AURA=/workspace/aura-src/dist/aura-7167490ea-linux-x86_64/bin/aura \
+  bash scripts/v7-paper.sh
+git add paper/v7-ledger.csv paper/v7-asif-ledger.csv paper/v7-status.json \
+  data/v7/*-paper-d1.csv data/v7/*-paper-h4.csv data/v7/rates-paper.csv \
+  data/v7/vix-paper.csv data/v7/vix-paper-source.json data/v7/market-*.csv \
+  data/v7/market-meta.json data/v7/SHA256SUMS
+git diff --cached --quiet || git commit -m "v7 paper book $(date -u +%Y-%m-%d)"
+git push origin main
+```
+
+### 要不要上 Demo
+
+**现在不行。** 官方账本还是空的；评估窗口要到 2027-05-16 且满 120 个官方交易日。没有连 FXCM，没有下任何单。
+
 ## 布局
+
 
 | 路径 | 作用 |
 |---|---|
@@ -1151,6 +1219,11 @@ Aura 用自编 main `7167490ea`（`/workspace/aura-src`，完整哈希 `7167490e
 | `scripts/v6-fetch.py` / `scripts/v6-rates.py` / `scripts/v6-prep.py` / `data/v6/` | Dukascopy H1→H4/D1、BIS 政策利率、VIX、26 个配置的净值列 |
 | `scripts/v6-select.py` / `scripts/v6-freeze.py` / `frozen/v6.json` / `frozen/v6-select.json` / `frozen/v6.sha256` | v6 部署规则和冻结 |
 | `v6-final.aura` / `scripts/v6-final.sh` / `scripts/v6-report.py` | v6 最终检验（8 个新货币对，1× / 2× 成本）。这一次 `v6-final.aura` 因 `cadddr` 未绑定在类型检查阶段失败，没有 `V6_FINAL_OK` |
+| `lib/v7.aura` / `v7-paper.aura` / `v7-monitor.aura` | v7 纸面跟踪：Aura 计算等权利差持仓，并用 `select:drift?` 只告警不改参数 |
+| `scripts/v7-paper.sh` / `scripts/v7-fetch.py` / `scripts/v7-market.py` / `scripts/v7-book.py` / `scripts/v7-eval.py` | 每日纸面脚本（幂等）、Dukascopy 下载、对齐市场表、记账和 Demo 规则 |
+| `frozen/v7.json` / `frozen/v7.sha256` | v7 冻结：篮子、成本、评估规则和原始依赖哈希（29dd074，保持不动） |
+| `frozen/v7.1.json` / `frozen/v7.1.sha256` | v7.1 下载侧补丁和可运行哈希；不改 v7 规则 |
+| `data/v7/` / `paper/v7-ledger.csv` / `paper/v7-asif-ledger.csv` / `paper/v7-status.json` | v7 日线与利率、官方账本、仅供参考的 as-if 回放、状态 |
 | `scripts/meter.py` | 记录墙钟、CPU、等效核数和峰值内存 |
 | `bridge/fc_adapter.py` | probe、login、paper、live（含 --offline / --dry-run），自带风控检查 |
 
