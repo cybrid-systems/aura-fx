@@ -20,3 +20,7 @@ Final-test prices, EM policy rates (NO/SE/MX/ZA), and 2024+ VIX are
 intentionally not downloaded until after the freeze.
 
 sha256 of the committed train macro files is in data/v6/SHA256SUMS.
+
+Processed train bars committed here (H4 and D1 only). Raw .bi5 and H1 CSVs
+are gitignored; rebuild with the v6-fetch.py command above. All seven pairs
+cover 2015-01-01 22:00Z .. 2023-12-29 21:00Z (D1 from 2015-01-02).
