@@ -1,0 +1,126 @@
+FINAL_START 2026-11-16 19:37:04 +0800
+AURA=/workspace/aura-src/dist/aura-7167490ea-linux-x86_64/bin/aura
+aura dev (7167490eacaf13b4af4f2376954b7265e4306f2f)
+freeze=9c53bd1d09802889f04e1618182df8fc900c23ea
+helpers: data/v6/usdjpy-final-d1.csv from data/v3; audusd-final-d1 from data/v3; usdcad-final-d1 from data/v4 (already-seen, not new final-test instruments)
+frozen/v6.json: OK
+frozen/v6-select.json: OK
+lib/v6.aura: OK
+lib/metrics.aura: OK
+v6-final.aura: OK
+scripts/v6-final.sh: OK
+scripts/v6-fetch.py: OK
+scripts/v6-rates.py: OK
+scripts/v6-prep.py: OK
+scripts/v6-report.py: OK
+scripts/v6-select.py: OK
+scripts/v6-blend.py: OK
+FETCH_START jobs=736 pairs=['USDNOK', 'USDSEK', 'USDMXN', 'USDZAR', 'AUDJPY', 'GBPJPY', 'EURAUD', 'EURCAD'] (2023, 1)..(2026, 10)
+fetched 50/736 224s
+fetched 100/736 385s
+fetched 150/736 588s
+fetched 200/736 892s
+fetched 250/736 1016s
+fetched 300/736 1174s
+fetched 350/736 1430s
+fetched 400/736 1594s
+fetched 450/736 1829s
+fetched 500/736 2024s
+fetched 550/736 2181s
+fetched 600/736 2436s
+fetched 650/736 2567s
+fetched 700/736 2815s
+fetched 736/736 2863s
+BARS_OK data/v6/usdnok-final-h4.csv rows=6169
+BARS_OK data/v6/usdnok-final-d1.csv rows=996
+FETCH_OK USDNOK final h1-rows=23849 from=1672617600 to=1793390400
+BARS_OK data/v6/usdsek-final-h4.csv rows=6175
+BARS_OK data/v6/usdsek-final-d1.csv rows=997
+FETCH_OK USDSEK final h1-rows=23867 from=1672610400 to=1793390400
+BARS_OK data/v6/usdmxn-final-h4.csv rows=6170
+BARS_OK data/v6/usdmxn-final-d1.csv rows=996
+FETCH_OK USDMXN final h1-rows=23798 from=1672642800 to=1793390400
+BARS_OK data/v6/usdzar-final-h4.csv rows=6171
+BARS_OK data/v6/usdzar-final-d1.csv rows=997
+FETCH_OK USDZAR final h1-rows=23848 from=1672642800 to=1793390400
+BARS_OK data/v6/audjpy-final-h4.csv rows=6174
+BARS_OK data/v6/audjpy-final-d1.csv rows=997
+FETCH_OK AUDJPY final h1-rows=23883 from=1672610400 to=1793390400
+BARS_OK data/v6/gbpjpy-final-h4.csv rows=6174
+BARS_OK data/v6/gbpjpy-final-d1.csv rows=997
+FETCH_OK GBPJPY final h1-rows=23883 from=1672614000 to=1793390400
+BARS_OK data/v6/euraud-final-h4.csv rows=6175
+BARS_OK data/v6/euraud-final-d1.csv rows=997
+FETCH_OK EURAUD final h1-rows=23879 from=1672614000 to=1793390400
+BARS_OK data/v6/eurcad-final-h4.csv rows=6174
+BARS_OK data/v6/eurcad-final-d1.csv rows=997
+FETCH_OK EURCAD final h1-rows=23878 from=1672614000 to=1793390400
+RATES_OK data/v6/rates-final.csv months=47 from=2022-12 to=2026-10
+VIX_OK data/v6/vix-final.csv source=datasets/finance-vix CBOE close url=https://raw.githubusercontent.com/datasets/finance-vix/main/data/vix-daily.csv days=1469 from=2021-01-04 to=2026-09-22
+EVOLVED_RESTORED
+CONFIG carry-eq-d1 sum=8764.0
+CONFIG carry-eq-h4 sum=9101.3
+CONFIG carry-z-d1 sum=16674.5
+CONFIG carry-z-h4 sum=17284.4
+CONFIG carry-vol-d1 sum=3670.9
+CONFIG carry-vol-h4 sum=3239.4
+CONFIG carry-mom63-d1 sum=778.2
+CONFIG carry-mom63-h4 sum=550.4
+CONFIG carry-mom252-d1 sum=3871.1
+CONFIG carry-mom252-h4 sum=2503.5
+CONFIG xsmom-21-d1 sum=-14841.8
+CONFIG xsmom-21-h4 sum=-17893.5
+CONFIG xsmom-63-d1 sum=-2045.6
+CONFIG xsmom-63-h4 sum=-3641.7
+CONFIG xsmom-126-d1 sum=-9862.6
+CONFIG xsmom-252-d1 sum=-2046.2
+CONFIG usd-tsmom-63-d1 sum=-9479.4
+CONFIG usd-tsmom-252-d1 sum=-5085.6
+CONFIG resid-mom-63-d1 sum=-1575.9
+CONFIG resid-mom-252-d1 sum=-1890.3
+CONFIG resid-mr-60-d1 sum=-684.0
+CONFIG resid-mr-120-d1 sum=478.5
+CONFIG carry-vix-med-d1 sum=3088.9
+CONFIG carry-vix-20-d1 sum=3564.9
+CONFIG carry-vix-rev-d1 sum=-2000.2
+CONFIG v5fixed-h4-mr5d-1.0 sum=2518.2
+PREP_OK data/v6/final days=995 from=2023-01-02 to=2026-10-30 configs=26 pairs=USDNOK,USDSEK,USDMXN,USDZAR,AUDJPY,GBPJPY,EURAUD,EURCAD
+CONFIG carry-eq-d1 sum=8731.9
+CONFIG carry-eq-h4 sum=9069.2
+CONFIG carry-z-d1 sum=16641.9
+CONFIG carry-z-h4 sum=17251.8
+CONFIG carry-vol-d1 sum=3528.9
+CONFIG carry-vol-h4 sum=3097.6
+CONFIG carry-mom63-d1 sum=5.7
+CONFIG carry-mom63-h4 sum=-1071.3
+CONFIG carry-mom252-d1 sum=3564.1
+CONFIG carry-mom252-h4 sum=1881.6
+CONFIG xsmom-21-d1 sum=-17762.2
+CONFIG xsmom-21-h4 sum=-24679.5
+CONFIG xsmom-63-d1 sum=-3587.4
+CONFIG xsmom-63-h4 sum=-6796.1
+CONFIG xsmom-126-d1 sum=-11205.6
+CONFIG xsmom-252-d1 sum=-2625.1
+CONFIG usd-tsmom-63-d1 sum=-10765.7
+CONFIG usd-tsmom-252-d1 sum=-5681.1
+CONFIG resid-mom-63-d1 sum=-3161.7
+CONFIG resid-mom-252-d1 sum=-2468.6
+CONFIG resid-mr-60-d1 sum=-2314.2
+CONFIG resid-mr-120-d1 sum=-421.9
+CONFIG carry-vix-med-d1 sum=2286.3
+CONFIG carry-vix-20-d1 sum=2636.8
+CONFIG carry-vix-rev-d1 sum=-3598.9
+CONFIG v5fixed-h4-mr5d-1.0 sum=-227.8
+PREP_OK data/v6/final2x days=995 from=2023-01-02 to=2026-10-30 configs=26 pairs=USDNOK,USDSEK,USDMXN,USDZAR,AUDJPY,GBPJPY,EURAUD,EURCAD
+BLEND nsga2-blend w=[0.424, 0.113, 0.287, 0.176] sum=1612.0
+BLEND es-blend w=[0.223, 0.413, 0.322, 0.041] sum=505.3
+V6_BLEND_OK
+BLEND nsga2-blend w=[0.424, 0.113, 0.287, 0.176] sum=729.3
+BLEND es-blend w=[0.223, 0.413, 0.322, 0.041] sum=-717.1
+V6_BLEND_OK
+error: v6-final.aura:24:4: type error: v6-final.aura:25:49: unbound variable: cadddr
+   |
+ 24 |   (map (lambda (s)
+   |    ^^^
+METER rc=1 wall=0.2s cpu=0.2s cores=0.99 peak_rss=234MB
+FINAL_EXIT:1

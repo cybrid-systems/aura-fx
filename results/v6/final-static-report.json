@@ -1,0 +1,438 @@
+{
+ "note": "Official one-shot scripts/v6-final.sh ran after freeze 9c53bd1. Fetch, rates, prep (1x and 2x) and blend completed. aura run v6-final.aura failed at type-check in 0.2s on unbound variable cadddr (v6-final.aura:25) before any trading day was evaluated; no out/v6-final.json, no V6_FINAL_OK. This report is the static as-if table from the already-produced final-net / final2x-net / blend files of that same run. The adaptive as-if (gate-N20-W60) was not obtained and was not rerun.",
+ "test-from": "2024-01-01",
+ "aura-error": "v6-final.aura:24:4: type error: v6-final.aura:25:49: unbound variable: cadddr",
+ "vix-final-to": "2026-09-22",
+ "vix-note": "datasets/finance-vix CBOE close ends 2026-09-22, short of test end 2026-10-31; v6-prep uses previous-day VIX (align_prev), so October 2026 VIX-gated configs carry the last available close.",
+ "helpers": {
+  "USDJPY": "data/v3/usdjpy-final-d1.csv copied to data/v6/usdjpy-final-d1.csv",
+  "AUDUSD": "data/v3/audusd-final-d1.csv copied to data/v6/audusd-final-d1.csv",
+  "USDCAD": "data/v4/usdcad-final-d1.csv copied to data/v6/usdcad-final-d1.csv",
+  "note": "Already-seen conversion D1, disclosed; not new final-test instruments."
+ },
+ "runs": {
+  "x1:carry-vix-20-d1": {
+   "sum": 2702.31,
+   "sharpe-ann": 0.344,
+   "t-vs-flat": 0.59,
+   "max-dd": 5514.21,
+   "days": 736,
+   "dsr-all": 0.25,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.025,
+   "sr-daily": 0.0217
+  },
+  "x1:carry-eq-d1": {
+   "sum": 6093.69,
+   "sharpe-ann": 0.646,
+   "t-vs-flat": 1.1,
+   "max-dd": 6057.53,
+   "days": 736,
+   "dsr-all": 0.436,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.006,
+   "sr-daily": 0.0407
+  },
+  "x1:v5fixed-h4-mr5d-1.0": {
+   "sum": 27.92,
+   "sharpe-ann": 0.004,
+   "t-vs-flat": 0.01,
+   "max-dd": 4505.52,
+   "days": 736,
+   "dsr-all": 0.104,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0464,
+   "sr-daily": 0.0002
+  },
+  "x1:nsga2-blend": {
+   "sum": 1582.3,
+   "sharpe-ann": 0.328,
+   "t-vs-flat": 0.56,
+   "max-dd": 3333.48,
+   "days": 736,
+   "dsr-all": 0.241,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.026,
+   "sr-daily": 0.0207
+  },
+  "x1:es-blend": {
+   "sum": 999.13,
+   "sharpe-ann": 0.264,
+   "t-vs-flat": 0.45,
+   "max-dd": 1892.49,
+   "days": 736,
+   "dsr-all": 0.208,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.03,
+   "sr-daily": 0.0166
+  },
+  "x2:carry-vix-20-d1": {
+   "sum": 1980.1,
+   "sharpe-ann": 0.252,
+   "t-vs-flat": 0.43,
+   "max-dd": 5828.07,
+   "days": 736,
+   "dsr-all": 0.203,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0308,
+   "sr-daily": 0.0159
+  },
+  "x2:carry-eq-d1": {
+   "sum": 6074.02,
+   "sharpe-ann": 0.643,
+   "t-vs-flat": 1.1,
+   "max-dd": 6070.23,
+   "days": 736,
+   "dsr-all": 0.434,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0061,
+   "sr-daily": 0.0405
+  },
+  "x2:v5fixed-h4-mr5d-1.0": {
+   "sum": -1969.89,
+   "sharpe-ann": -0.28,
+   "t-vs-flat": -0.48,
+   "max-dd": 4900.51,
+   "days": 736,
+   "dsr-all": 0.042,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0643,
+   "sr-daily": -0.0176
+  },
+  "x2:nsga2-blend": {
+   "sum": 899.9,
+   "sharpe-ann": 0.187,
+   "t-vs-flat": 0.32,
+   "max-dd": 3553.34,
+   "days": 736,
+   "dsr-all": 0.172,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0349,
+   "sr-daily": 0.0118
+  },
+  "x2:es-blend": {
+   "sum": 54.51,
+   "sharpe-ann": 0.014,
+   "t-vs-flat": 0.02,
+   "max-dd": 2099.79,
+   "days": 736,
+   "dsr-all": 0.107,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0458,
+   "sr-daily": 0.0009
+  },
+  "x1:flat": {
+   "sum": 0.0,
+   "sharpe-ann": 0.0,
+   "t-vs-flat": 0.0,
+   "max-dd": 0.0,
+   "days": 736,
+   "dsr-all": null,
+   "sr0-all": null,
+   "deflated-all": null
+  },
+  "x2:flat": {
+   "sum": 0.0,
+   "sharpe-ann": 0.0,
+   "t-vs-flat": 0.0,
+   "max-dd": 0.0,
+   "days": 736,
+   "dsr-all": null,
+   "sr0-all": null,
+   "deflated-all": null
+  }
+ },
+ "days": {
+  "n": 736,
+  "from": "2024-01-02",
+  "to": "2026-10-30"
+ },
+ "all-fixed-x1": {
+  "carry-eq-d1": {
+   "sum": 6093.69,
+   "sharpe-ann": 0.646,
+   "t-vs-flat": 1.1,
+   "max-dd": 6057.53,
+   "days": 736,
+   "dsr-all": 0.436,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.006,
+   "sr-daily": 0.0407
+  },
+  "carry-eq-h4": {
+   "sum": 5790.0,
+   "sharpe-ann": 0.615,
+   "t-vs-flat": 1.05,
+   "max-dd": 6246.37,
+   "days": 736,
+   "dsr-all": 0.416,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0079,
+   "sr-daily": 0.0387
+  },
+  "carry-z-d1": {
+   "sum": 9354.78,
+   "sharpe-ann": 0.702,
+   "t-vs-flat": 1.2,
+   "max-dd": 8717.22,
+   "days": 736,
+   "dsr-all": 0.474,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0025,
+   "sr-daily": 0.0442
+  },
+  "carry-z-h4": {
+   "sum": 9283.52,
+   "sharpe-ann": 0.694,
+   "t-vs-flat": 1.19,
+   "max-dd": 8707.5,
+   "days": 736,
+   "dsr-all": 0.468,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.003,
+   "sr-daily": 0.0437
+  },
+  "carry-vol-d1": {
+   "sum": 3903.94,
+   "sharpe-ann": 0.474,
+   "t-vs-flat": 0.81,
+   "max-dd": 7012.1,
+   "days": 736,
+   "dsr-all": 0.326,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0168,
+   "sr-daily": 0.0299
+  },
+  "carry-vol-h4": {
+   "sum": 3586.64,
+   "sharpe-ann": 0.432,
+   "t-vs-flat": 0.74,
+   "max-dd": 7272.07,
+   "days": 736,
+   "dsr-all": 0.301,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0195,
+   "sr-daily": 0.0272
+  },
+  "carry-mom63-d1": {
+   "sum": 1624.34,
+   "sharpe-ann": 0.253,
+   "t-vs-flat": 0.43,
+   "max-dd": 4110.48,
+   "days": 736,
+   "dsr-all": 0.204,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0307,
+   "sr-daily": 0.016
+  },
+  "carry-mom63-h4": {
+   "sum": 248.85,
+   "sharpe-ann": 0.039,
+   "t-vs-flat": 0.07,
+   "max-dd": 4089.51,
+   "days": 736,
+   "dsr-all": 0.115,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0442,
+   "sr-daily": 0.0024
+  },
+  "carry-mom252-d1": {
+   "sum": 4030.51,
+   "sharpe-ann": 0.539,
+   "t-vs-flat": 0.92,
+   "max-dd": 4532.35,
+   "days": 736,
+   "dsr-all": 0.366,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0127,
+   "sr-daily": 0.0339
+  },
+  "carry-mom252-h4": {
+   "sum": 2879.22,
+   "sharpe-ann": 0.387,
+   "t-vs-flat": 0.66,
+   "max-dd": 4949.9,
+   "days": 736,
+   "dsr-all": 0.274,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0223,
+   "sr-daily": 0.0244
+  },
+  "xsmom-21-d1": {
+   "sum": -10901.89,
+   "sharpe-ann": -1.202,
+   "t-vs-flat": -2.05,
+   "max-dd": 13063.74,
+   "days": 736,
+   "dsr-all": 0.0,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.1224,
+   "sr-daily": -0.0757
+  },
+  "xsmom-21-h4": {
+   "sum": -12178.42,
+   "sharpe-ann": -1.33,
+   "t-vs-flat": -2.27,
+   "max-dd": 14524.81,
+   "days": 736,
+   "dsr-all": 0.0,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.1304,
+   "sr-daily": -0.0838
+  },
+  "xsmom-63-d1": {
+   "sum": 552.13,
+   "sharpe-ann": 0.059,
+   "t-vs-flat": 0.1,
+   "max-dd": 3764.38,
+   "days": 736,
+   "dsr-all": 0.122,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0429,
+   "sr-daily": 0.0037
+  },
+  "xsmom-63-h4": {
+   "sum": -2842.88,
+   "sharpe-ann": -0.303,
+   "t-vs-flat": -0.52,
+   "max-dd": 6026.74,
+   "days": 736,
+   "dsr-all": 0.037,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0657,
+   "sr-daily": -0.0191
+  },
+  "xsmom-126-d1": {
+   "sum": -5788.59,
+   "sharpe-ann": -0.594,
+   "t-vs-flat": -1.01,
+   "max-dd": 9088.39,
+   "days": 736,
+   "dsr-all": 0.011,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0841,
+   "sr-daily": -0.0374
+  },
+  "xsmom-252-d1": {
+   "sum": -2118.14,
+   "sharpe-ann": -0.23,
+   "t-vs-flat": -0.39,
+   "max-dd": 8678.01,
+   "days": 736,
+   "dsr-all": 0.048,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0611,
+   "sr-daily": -0.0145
+  },
+  "usd-tsmom-63-d1": {
+   "sum": -3810.77,
+   "sharpe-ann": -0.4,
+   "t-vs-flat": -0.68,
+   "max-dd": 5410.92,
+   "days": 736,
+   "dsr-all": 0.025,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0719,
+   "sr-daily": -0.0252
+  },
+  "usd-tsmom-252-d1": {
+   "sum": -5021.68,
+   "sharpe-ann": -0.528,
+   "t-vs-flat": -0.9,
+   "max-dd": 7305.6,
+   "days": 736,
+   "dsr-all": 0.015,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0799,
+   "sr-daily": -0.0333
+  },
+  "resid-mom-63-d1": {
+   "sum": 754.06,
+   "sharpe-ann": 0.089,
+   "t-vs-flat": 0.15,
+   "max-dd": 3992.4,
+   "days": 736,
+   "dsr-all": 0.133,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0411,
+   "sr-daily": 0.0056
+  },
+  "resid-mom-252-d1": {
+   "sum": -1836.91,
+   "sharpe-ann": -0.2,
+   "t-vs-flat": -0.34,
+   "max-dd": 7931.45,
+   "days": 736,
+   "dsr-all": 0.054,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0592,
+   "sr-daily": -0.0126
+  },
+  "resid-mr-60-d1": {
+   "sum": -1351.38,
+   "sharpe-ann": -0.212,
+   "t-vs-flat": -0.36,
+   "max-dd": 4093.28,
+   "days": 736,
+   "dsr-all": 0.053,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.06,
+   "sr-daily": -0.0133
+  },
+  "resid-mr-120-d1": {
+   "sum": -597.54,
+   "sharpe-ann": -0.114,
+   "t-vs-flat": -0.19,
+   "max-dd": 2886.17,
+   "days": 736,
+   "dsr-all": 0.073,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0538,
+   "sr-daily": -0.0072
+  },
+  "carry-vix-med-d1": {
+   "sum": 3439.74,
+   "sharpe-ann": 0.648,
+   "t-vs-flat": 1.11,
+   "max-dd": 1996.14,
+   "days": 736,
+   "dsr-all": 0.438,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0058,
+   "sr-daily": 0.0408
+  },
+  "carry-vix-20-d1": {
+   "sum": 2702.31,
+   "sharpe-ann": 0.344,
+   "t-vs-flat": 0.59,
+   "max-dd": 5514.21,
+   "days": 736,
+   "dsr-all": 0.25,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.025,
+   "sr-daily": 0.0217
+  },
+  "carry-vix-rev-d1": {
+   "sum": -1649.4,
+   "sharpe-ann": -0.174,
+   "t-vs-flat": -0.3,
+   "max-dd": 7584.62,
+   "days": 736,
+   "dsr-all": 0.059,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0576,
+   "sr-daily": -0.011
+  },
+  "v5fixed-h4-mr5d-1.0": {
+   "sum": 27.92,
+   "sharpe-ann": 0.004,
+   "t-vs-flat": 0.01,
+   "max-dd": 4505.52,
+   "days": 736,
+   "dsr-all": 0.104,
+   "sr0-all": 0.0467,
+   "deflated-all": -0.0464,
+   "sr-daily": 0.0002
+  }
+ }
+}
