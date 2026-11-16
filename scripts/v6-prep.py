@@ -213,7 +213,8 @@ def xs_apply(sig_row, kind, retL=None, vol_ratio=None, vix_ok=None, vix_mode=Non
     if kind == "carry-mom" and retL is not None:
         p = np.where(p * retL > 0, p, 0.0)
     if kind.startswith("carry-vix") or vix_mode:
-        if vix_ok is False:
+        # ==, not `is`: vix_ok comes from a numpy comparison (numpy.bool_)
+        if vix_ok == False:
             p = (-p) if vix_mode == "rev" else np.zeros(n)
     return p
 
