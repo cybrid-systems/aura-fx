@@ -1,0 +1,14 @@
+V6 variant 0 greedy N=20 W=60 sum=-5883.0 switches=69 heals=33 fails=0 trial-fail=0 drift=52 ms=35575
+V6 variant 2 race N=20 W=60 sum=-10388.2 switches=67 heals=37 fails=0 trial-fail=0 drift=59 ms=16634
+V6 variant 4 greedy N=20 W=120 sum=1814.0 switches=69 heals=25 fails=0 trial-fail=0 drift=58 ms=10832
+V6 variant 6 race N=20 W=120 sum=-5202.5 switches=65 heals=37 fails=0 trial-fail=0 drift=61 ms=23463
+V6 variant 8 greedy N=20 W=252 sum=-11182.8 switches=57 heals=37 fails=0 trial-fail=0 drift=86 ms=12083
+V6 variant 10 race N=20 W=252 sum=-16670.7 switches=55 heals=30 fails=0 trial-fail=0 drift=51 ms=35396
+V6 variant 12 greedy N=60 W=60 sum=-9917.3 switches=38 heals=22 fails=0 trial-fail=0 drift=50 ms=9991
+V6 variant 14 race N=60 W=60 sum=-9833.2 switches=37 heals=19 fails=0 trial-fail=0 drift=58 ms=13255
+V6 variant 16 greedy N=60 W=120 sum=2970.9 switches=37 heals=19 fails=0 trial-fail=0 drift=50 ms=9975
+V6 variant 18 race N=60 W=120 sum=-13834.1 switches=35 heals=19 fails=0 trial-fail=0 drift=56 ms=16674
+V6 variant 20 greedy N=60 W=252 sum=-12680.1 switches=33 heals=16 fails=0 trial-fail=0 drift=63 ms=10136
+V6 variant 22 race N=60 W=252 sum=-7336.6 switches=38 heals=12 fails=0 trial-fail=0 drift=58 ms=24508
+V6_RUN_OK
+METER rc=0 wall=342.5s cpu=335.7s cores=0.98 peak_rss=1074MB
