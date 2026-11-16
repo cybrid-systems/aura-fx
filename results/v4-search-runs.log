@@ -1,0 +1,36 @@
+V4 2021 gp evals=806 kept=1 rolled=6 llm-props=0 llm-kept=0 llm-calls=0 champ=(rule (/ (up 60) (dpos 120)) 1.36 -0.24 3) champ-fit=1.825 best=(rule (/ (up 60) (dpos 120)) 2.051 -0.6 1) best-fit=2.149 val-champ=1188.333 val-best=350.573 live-ok=#t ms=443078
+V4_RUN_OK
+METER rc=0 wall=448.0s cpu=426.1s cores=0.95 peak_rss=919MB
+V4 2021 hybrid evals=849 kept=1 rolled=29 llm-props=24 llm-kept=0 llm-calls=6 champ=(rule (/ (up 60) (zret 120)) 0.148 0.098 14) champ-fit=2.04 best=(rule (neg (zret 5)) 2.354 -0.218 7) best-fit=2.122 val-champ=477.457 val-best=543.447 live-ok=#t ms=629433
+V4_RUN_OK
+METER rc=0 wall=633.6s cpu=531.0s cores=0.84 peak_rss=1285MB
+V4 2021 llm evals=50 kept=0 rolled=32 llm-props=32 llm-kept=0 llm-calls=8 champ=flat champ-fit=0 best=(rule (+ (* 0.65 (dpos 55)) (* 0.35 (neg (zret 20)))) 0.4 0.1 20) best-fit=1.391 val-champ=0.0 val-best=534.433 live-ok=#t ms=144127
+V4_RUN_OK
+METER rc=0 wall=146.4s cpu=32.7s cores=0.22 peak_rss=458MB
+V4 2022 gp evals=796 kept=0 rolled=15 llm-props=0 llm-kept=0 llm-calls=0 champ=flat champ-fit=0 best=(rule (/ (carry) (zsma 20)) 1.365 0.222 8) best-fit=1.329 val-champ=0.0 val-best=2563.833 live-ok=#t ms=1030066
+V4_RUN_OK
+METER rc=0 wall=1065.8s cpu=1009.1s cores=0.95 peak_rss=1205MB
+V4 2022 hybrid evals=856 kept=0 rolled=39 llm-props=24 llm-kept=0 llm-calls=6 champ=flat champ-fit=0 best=(rule (ifgt (ifgt -0.9 (vr) (usd 5) (carry)) (min (zret 5) (+ (ifgt (dpos 120) (r1) -1.54 (zret 60)) (/ -0.83 (r1)))) (dpos 120) (* (zsma 50) (carry))) 1.294 0.09 10) best-fit=1.239 val-champ=0.0 val-best=76.054 live-ok=#t ms=743855
+V4_RUN_OK
+METER rc=0 wall=747.4s cpu=664.2s cores=0.89 peak_rss=1245MB
+V4 2022 llm evals=46 kept=0 rolled=29 llm-props=29 llm-kept=0 llm-calls=8 champ=flat champ-fit=0 best=(rule (+ (carry) (+ (* (usd 60) 0.5) (* (zret 120) 0.3))) 0.5 0.1 20) best-fit=0.508 val-champ=0.0 val-best=3310.656 live-ok=#t ms=134251
+V4_RUN_OK
+METER rc=0 wall=136.3s cpu=38.2s cores=0.28 peak_rss=498MB
+V4 2023 gp evals=803 kept=1 rolled=11 llm-props=0 llm-kept=0 llm-calls=0 champ=(rule (* (min (* (* (zret 20) (carry)) (abs (up 20))) (max (usd 60) (carry))) (* (zsma 50) (ifgt (usd 60) (carry) 0.94 (vr)))) 0.87 0.22 3) champ-fit=1.061 best=(rule (abs (* 1.0 (ifgt 2.43 (zret 120) (ifgt (usd 60) (zret 120) (up 60) (zsma 200)) (carry)))) 0.881 0.378 15) best-fit=1.302 val-champ=864.935 val-best=-1081.579 live-ok=#t ms=451374
+V4_RUN_OK
+METER rc=0 wall=453.2s cpu=432.1s cores=0.95 peak_rss=1352MB
+V4 2023 hybrid evals=829 kept=0 rolled=39 llm-props=24 llm-kept=0 llm-calls=6 champ=flat champ-fit=0 best=(rule (+ (* (carry) (zret 60)) (zsma 100)) 0.059 0.009 25) best-fit=1.183 val-champ=0.0 val-best=1593.672 live-ok=#t ms=1100236
+V4_RUN_OK
+METER rc=0 wall=1135.0s cpu=1003.7s cores=0.88 peak_rss=1435MB
+V4 2023 llm evals=50 kept=0 rolled=32 llm-props=32 llm-kept=0 llm-calls=8 champ=flat champ-fit=0 best=(rule (+ (* (dpos 120) 0.6) (+ (* (carry) 0.2) (* (usd 60) 0.2))) 0.5 0.0 12) best-fit=0.506 val-champ=0.0 val-best=-545.761 live-ok=#t ms=121004
+V4_RUN_OK
+METER rc=0 wall=123.4s cpu=51.9s cores=0.42 peak_rss=522MB
+V4 full gp evals=811 kept=1 rolled=10 llm-props=0 llm-kept=0 llm-calls=0 champ=(rule (+ (* (/ (* (carry) (vr)) (ifgt (r1) 0.13 (carry) (vr))) (max (zret 10) (max (max 1.18 (r1)) (ifgt (zret 10) (zsma 200) (up 20) (vr))))) (r1)) 0.69 0.12 20) champ-fit=1.107 best=(rule (+ (* (/ (* (carry) (vr)) (ifgt (r1) 0.13 (carry) (vr))) (max (zret 10) (max (max 1.18 (r1)) (ifgt (zret 10) (zsma 200) (up 20) (vr))))) (r1)) 2.35 0.291 38) best-fit=1.141 val-champ=- val-best=- live-ok=#t ms=967337
+V4_RUN_OK
+METER rc=0 wall=1000.4s cpu=948.3s cores=0.95 peak_rss=1818MB
+V4 full hybrid evals=840 kept=0 rolled=39 llm-props=24 llm-kept=0 llm-calls=6 champ=flat champ-fit=0 best=(rule (max (r1) (ifgt (ifgt (carry) (zret 20) 0.22 0.31) (/ (up 60) (dpos 120)) (+ (usd 20) (usd 20)) (max (up 10) (r1)))) 1.137 -0.917 31) best-fit=0.808 val-champ=- val-best=- live-ok=#t ms=846076
+V4_RUN_OK
+METER rc=0 wall=847.0s cpu=760.8s cores=0.90 peak_rss=1899MB
+V4 full llm evals=54 kept=1 rolled=31 llm-props=32 llm-kept=1 llm-calls=8 champ=(rule (+ (ifgt (abs (zret 20)) 1 (+ (dpos 55) (usd 60)) (- (dpos 55) (usd 60))) (* (carry) 0.2)) 0.6 0.0 12) champ-fit=0.812 best=(rule (+ (ifgt (abs (zret 20)) 1 (+ (dpos 55) (usd 60)) (- (dpos 55) (usd 60))) (* (carry) 0.2)) 0.6 0.0 12) best-fit=0.812 val-champ=- val-best=- live-ok=#t ms=176232
+V4_RUN_OK
+METER rc=0 wall=176.9s cpu=67.2s cores=0.38 peak_rss=613MB

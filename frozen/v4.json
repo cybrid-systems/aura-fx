@@ -1,0 +1,233 @@
+{
+ "as-if": {
+  "gp-champion": {
+   "fills-yr": 22.187,
+   "fit": 1.107,
+   "max-dd": 2269.385,
+   "nodes": 23,
+   "per-pair": [
+    [
+     "EUR/USD",
+     3341.7,
+     24
+    ],
+    [
+     "GBP/USD",
+     4388.4,
+     23.6
+    ],
+    [
+     "USD/JPY",
+     2471.3,
+     17.5
+    ],
+    [
+     "AUD/USD",
+     2294.8,
+     23.6
+    ]
+   ],
+   "rule": "(rule (+ (* (/ (* (carry) (vr)) (ifgt (r1) 0.13 (carry) (vr))) (max (zret 10) (max (max 1.18 (r1)) (ifgt (zret 10) (zsma 200) (up 20) (vr))))) (r1)) 0.69 0.12 20)",
+   "sharpe": 1.237,
+   "sr-daily": 0.07793866958482171,
+   "sum": 12496.211
+  },
+  "hybrid-best": {
+   "fills-yr": 9.771,
+   "fit": 0.808,
+   "max-dd": 2340.045,
+   "nodes": 17,
+   "per-pair": [
+    [
+     "EUR/USD",
+     407.9,
+     11
+    ],
+    [
+     "GBP/USD",
+     3794.8,
+     9.8
+    ],
+    [
+     "USD/JPY",
+     2548.1,
+     8.1
+    ],
+    [
+     "AUD/USD",
+     1977.2,
+     10.2
+    ]
+   ],
+   "rule": "(rule (max (r1) (ifgt (ifgt (carry) (zret 20) 0.22 0.31) (/ (up 60) (dpos 120)) (+ (usd 20) (usd 20)) (max (up 10) (r1)))) 1.137 -0.917 31)",
+   "sharpe": 0.878,
+   "sr-daily": 0.05531981761239733,
+   "sum": 8728.025
+  },
+  "hybrid-champion": false,
+  "llm-champion": {
+   "fills-yr": 21.933,
+   "fit": 0.812,
+   "max-dd": 2950.826,
+   "nodes": 14,
+   "per-pair": [
+    [
+     "EUR/USD",
+     541.1,
+     22.4
+    ],
+    [
+     "GBP/USD",
+     2851.6,
+     22.6
+    ],
+    [
+     "USD/JPY",
+     2560.4,
+     20.4
+    ],
+    [
+     "AUD/USD",
+     2283.4,
+     22.4
+    ]
+   ],
+   "rule": "(rule (+ (ifgt (abs (zret 20)) 1 (+ (dpos 55) (usd 60)) (- (dpos 55) (usd 60))) (* (carry) 0.2)) 0.6 0.0 12)",
+   "sharpe": 0.852,
+   "sr-daily": 0.05367450500656016,
+   "sum": 8236.598
+  }
+ },
+ "aura": "aura dev (4f2e408384cbb0960408eed023954e0418e0b39b)",
+ "configs": [
+  {
+   "name": "deploy",
+   "rule": "flat"
+  },
+  {
+   "name": "hybrid-champion",
+   "rule": "flat"
+  },
+  {
+   "name": "hybrid-best",
+   "rule": "(rule (max (r1) (ifgt (ifgt (carry) (zret 20) 0.22 0.31) (/ (up 60) (dpos 120)) (+ (usd 20) (usd 20)) (max (up 10) (r1)))) 1.137 -0.917 31)"
+  },
+  {
+   "name": "gp-champion",
+   "rule": "(rule (+ (* (/ (* (carry) (vr)) (ifgt (r1) 0.13 (carry) (vr))) (max (zret 10) (max (max 1.18 (r1)) (ifgt (zret 10) (zsma 200) (up 20) (vr))))) (r1)) 0.69 0.12 20)"
+  },
+  {
+   "name": "llm-champion",
+   "rule": "(rule (+ (ifgt (abs (zret 20)) 1 (+ (dpos 55) (usd 60)) (- (dpos 55) (usd 60))) (* (carry) 0.2)) 0.6 0.0 12)"
+  }
+ ],
+ "counts": {
+  "kept": 5,
+  "llm-bad": 24,
+  "llm-calls": 56,
+  "llm-kept": 1,
+  "llm-props": 221,
+  "rolled": 312
+ },
+ "deploy": {
+  "has-champion": false,
+  "hybrid-val-deflated": -0.005957894262096967,
+  "hybrid-val-dsr": 0.4335054639596893,
+  "hybrid-val-mean": 0.6121234615384613,
+  "hybrid-val-sr0": 0.024553936701869054,
+  "rule": "flat",
+  "trade": false
+ },
+ "lot": 10000,
+ "pairs": [
+  {
+   "basis": "compareforexbrokers.com/our-methodology/forex-fees/standard-spreads/ (Ross Collins, MT4 standard-account test; FXCM measured EUR/USD 0.93): USD/CHF 1.84 x (1.3/0.93) = 2.57",
+   "file": "data/v4/final-usdchf.csv",
+   "name": "USD/CHF",
+   "pip": 0.0001,
+   "spread-pips": 2.57
+  },
+  {
+   "basis": "compareforexbrokers.com/our-methodology/forex-fees/standard-spreads/ (Ross Collins, MT4 standard-account test; FXCM measured EUR/USD 0.93): USD/CAD 1.96 x (1.3/0.93) = 2.74",
+   "file": "data/v4/final-usdcad.csv",
+   "name": "USD/CAD",
+   "pip": 0.0001,
+   "spread-pips": 2.74
+  },
+  {
+   "basis": "FXCM published Standard-account spreads (EUR/USD 1.3 in the same table), mytradingaid.com/san-forex/fxcm: NZD/USD 1.9 x (1.3/1.3); published, not measured (no measured figure found)",
+   "file": "data/v4/final-nzdusd.csv",
+   "name": "NZD/USD",
+   "pip": 0.0001,
+   "spread-pips": 1.9
+  },
+  {
+   "basis": "FXCM published Standard-account spreads (EUR/USD 1.3 in the same table), FXCM row on compareforexbrokers.com/our-methodology/forex-fees/standard-spreads/: EUR/JPY 1.9 x (1.3/1.3); published, not measured (no measured figure found)",
+   "file": "data/v4/final-eurjpy.csv",
+   "name": "EUR/JPY",
+   "pip": 0.01,
+   "spread-pips": 1.9
+  }
+ ],
+ "periods": [
+  "2024-01-01",
+  "2024-07-01",
+  "2025-01-01",
+  "2025-07-01",
+  "2026-01-01",
+  "2026-07-01",
+  "2026-11-01"
+ ],
+ "protocol-commit": "003f877",
+ "rates": "BIS WS_CBPOL monthly end-of-period policy rates, previous month; US XM GB JP AU CH CA NZ",
+ "reference": [
+  {
+   "file": "data/v4/ref-eurusd.csv",
+   "name": "EUR/USD",
+   "note": "already seen; reference only",
+   "pip": 0.0001,
+   "seen-in": "v2",
+   "spread-pips": 1.3
+  },
+  {
+   "file": "data/v4/ref-gbpusd.csv",
+   "name": "GBP/USD",
+   "note": "already seen; reference only",
+   "pip": 0.0001,
+   "seen-in": "v3",
+   "spread-pips": 1.85
+  },
+  {
+   "file": "data/v4/ref-usdjpy.csv",
+   "name": "USD/JPY",
+   "note": "already seen; reference only",
+   "pip": 0.01,
+   "seen-in": "v3",
+   "spread-pips": 1.46
+  },
+  {
+   "file": "data/v4/ref-audusd.csv",
+   "name": "AUD/USD",
+   "note": "already seen; reference only",
+   "pip": 0.0001,
+   "seen-in": "v3",
+   "spread-pips": 1.61
+  }
+ ],
+ "rollover-markup-pct": 1.0,
+ "spread-rule": "same ratio as the train spreads: FXCM Standard public figures scaled to EUR/USD 1.3",
+ "test-from": "2024-01-01",
+ "test-to": "2026-10-31",
+ "trials": {
+  "arm-sr-var": 0.0008289785650506872,
+  "arms": 3,
+  "candidate-sr-var": 0.0012381511750061468,
+  "candidates": 6922,
+  "evaluated": 6790,
+  "llm-calls-total": 85,
+  "llm-refused": 24,
+  "smoke-llm-calls": 29,
+  "smoke-llm-proposals": 108
+ },
+ "version": "frozen-v4"
+}

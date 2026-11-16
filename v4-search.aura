@@ -1,0 +1,92 @@
+;; v4 search, one fold and one arm per process (FOLD, ARM from the
+;; environment; scripts/v4-search.sh runs all twelve). Train data only
+;; (2019-2023, four pairs). Folds: fit 2019-04 .. Y-1 and validate Y for
+;; Y = 2021, 2022, 2023; "full" fits 2019-04 .. 2023 (no validation; this is
+;; the rule that would be frozen). Writes out/v4/run-<fold>-<arm>.json.
+(require "lib/v4evo")
+(require "std/fs" all:)
+
+(define FOLD (getenv "FOLD"))
+(define ARM (getenv "ARM"))
+(define OPTS (if (equal? (getenv "V4_SMOKE") "1")
+                 (hash "pop" 6 "gens" 2 "llm-every" 2 "llm-rounds" 1)   ; smoke test only
+                 (hash "pop" 40 "gens" 15 "llm-every" 3 "llm-rounds" 8)))
+(define FIT-FROM "2019-04-01")
+(define FOLDS (list (list "2021" "2021-01-01" "2022-01-01" "2019-2020")
+                    (list "2022" "2022-01-01" "2023-01-01" "2019-2021")
+                    (list "2023" "2023-01-01" "2024-01-01" "2019-2022")
+                    (list "full" "2024-01-01" #f "2019-2023")))
+(define ARMS (list "gp" "llm" "hybrid"))
+(define PAIRS (list (hash "name" "EUR/USD" "half" (* 0.5 1.3 0.0001) "file" "data/v4/train-eurusd.csv")
+                    (hash "name" "GBP/USD" "half" (* 0.5 1.85 0.0001) "file" "data/v4/train-gbpusd.csv")
+                    (hash "name" "USD/JPY" "half" (* 0.5 1.46 0.01) "file" "data/v4/train-usdjpy.csv")
+                    (hash "name" "AUD/USD" "half" (* 0.5 1.61 0.0001) "file" "data/v4/train-audusd.csv")))
+
+(define (index-of x xs) (let loop ((ys xs) (k 0)) (cond ((null? ys) -1) ((equal? (car ys) x) k) (else (loop (cdr ys) (+ k 1))))))
+(define spec (car (filter (lambda (f) (string=? (car f) FOLD)) FOLDS)))
+(define seed (+ (* 100 (+ 1 (index-of spec FOLDS))) (+ 1 (index-of ARM ARMS))))
+
+(define t0 (monotonic-ms))
+(define full (map v4-load-pair PAIRS))
+(define cut (v4-day-index (car full) (cadr spec)))
+(define a (v4-day-index (car full) FIT-FROM))
+(define ds (map (lambda (p) (v4-truncate p cut)) full))
+(v4-boot!)
+(llm:call-stats-reset!)
+(llm:rate-limit-set! 20)
+(define ctx (v4-run-arm ARM FOLD ds a cut seed (hash-set OPTS "fit-years" (list-ref spec 3))))
+(define (r2 x) (m-round x 3))
+
+(define (summ m)
+  (if (not m) #f
+    (hash "rule" (hash-ref m "key") "fit" (r2 (hash-ref m "fit")) "sharpe" (r2 (hash-ref m "sharpe"))
+          "sr-daily" (hash-ref m "sr-daily") "sum" (r2 (hash-ref m "sum")) "max-dd" (r2 (hash-ref m "max-dd"))
+          "fills-yr" (r2 (hash-ref m "fills-yr")) "nodes" (hash-ref m "nodes") "per-pair" (hash-ref m "per-pair"))))
+
+;; validation year on the full data (positions run from the first day,
+;; pnl counted only inside the year)
+(define (val-of m)
+  (if (not (caddr spec)) #f
+    (let* ((va (v4-day-index (car full) (cadr spec))) (vb (v4-day-index (car full) (caddr spec)))
+           (e (if m (v4-eval full (hash-ref m "rule") va vb) #f))
+           (daily (if e (hash-ref e "daily") (make-list (- vb va) 0.0))))
+      (hash "sum" (r2 (m-sum daily)) "sharpe" (r2 (* V4-ANN (m-sharpe daily))) "days" (length daily)
+            "fills-yr" (if e (r2 (hash-ref e "fills-yr")) 0.0) "daily" (map (lambda (x) (m-round x 4)) daily)
+            "per-pair" (if e (hash-ref e "per-pair") (list))))))
+
+(define champ (hash-ref ctx "champ"))
+(define best (hash-ref ctx "best"))
+(define live-body (hot-strategy:last-good-body "rule-score"))
+(define calls (reverse (vector-ref *v4-calls* 0)))
+(define stats (llm:call-stats))
+(define out
+  (hash "fold" FOLD "arm" ARM "seed" seed "fit-from" FIT-FROM "fit-to" (cadr spec) "val-to" (caddr spec)
+        "opts" OPTS "evals" (hash-ref ctx "evals") "trials" (map (lambda (x) (m-round x 6)) (hash-ref ctx "trials"))
+        "kept" (hash-ref ctx "kept") "rolled" (hash-ref ctx "rolled")
+        "llm-props" (hash-ref ctx "llm-props") "llm-bad" (hash-ref ctx "llm-bad") "llm-kept" (hash-ref ctx "llm-kept")
+        "llm-calls" (hash-ref ctx "llm-calls")
+        "llm-call-ms" (map (lambda (c) (hash-ref c "ms")) calls)
+        "llm-call-errors" (map (lambda (c) (hash-ref c "error")) (filter (lambda (c) (not (hash-ref c "ok"))) calls))
+        "llm-call-stats" (hash->list stats)
+        "champion" (summ champ) "best" (summ best)
+        "champion-code" (if champ (v4-rule-code (hash-ref champ "rule")) V4-FLAT-CODE)
+        "live-rule-score" live-body
+        "live-matches-champion" (equal? live-body (if champ (v4-rule-code (hash-ref champ "rule")) V4-FLAT-CODE))
+        "val-champion" (val-of champ) "val-best" (val-of best)
+        "rows" (reverse (hash-ref ctx "rows"))
+        "hh" (hash-ref ctx "hh") "hh-prompt" (hash-ref ctx "hh-prompt")
+        "ms" (- (monotonic-ms) t0)))
+(make-directory "out/v4")
+(write-file (string-append "out/v4/run-" FOLD "-" ARM ".json") (json-encode out))
+(display "V4 ") (display FOLD) (display " ") (display ARM)
+(display " evals=") (display (hash-ref ctx "evals")) (display " kept=") (display (hash-ref ctx "kept"))
+(display " rolled=") (display (hash-ref ctx "rolled")) (display " llm-props=") (display (hash-ref ctx "llm-props"))
+(display " llm-kept=") (display (hash-ref ctx "llm-kept")) (display " llm-calls=") (display (hash-ref ctx "llm-calls"))
+(display " champ=") (display (if champ (hash-ref champ "key") "flat"))
+(display " champ-fit=") (display (if champ (r2 (hash-ref champ "fit")) 0))
+(display " best=") (display (if best (hash-ref best "key") "none")) (display " best-fit=") (display (if best (r2 (hash-ref best "fit")) 0))
+(display " val-champ=") (display (let ((v (val-of champ))) (if v (hash-ref v "sum") "-")))
+(display " val-best=") (display (let ((v (val-of best))) (if v (hash-ref v "sum") "-")))
+(display " live-ok=") (display (hash-ref out "live-matches-champion"))
+(display " ms=") (display (hash-ref out "ms")) (newline)
+(display "V4_RUN_OK") (newline)

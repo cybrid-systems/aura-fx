@@ -1,0 +1,79 @@
+;; v4 selection (written and committed before the search ran).
+;; Reads out/v4/run-<fold>-<arm>.json for folds 2021, 2022, 2023, full and
+;; arms gp, llm, hybrid.
+;;
+;; Walk-forward validation of an arm: in each validation year it trades
+;; the champion its gated search kept on the years before (flat when the
+;; search kept nothing). The three years are pooled day by day.
+;;
+;; Deploy rule (pre-committed): the hybrid arm's full-fit champion
+;; (2019-04 .. 2023) is traded only if
+;;   1. that search kept a champion (at least one KEEP), and
+;;   2. the hybrid arm's pooled validation pnl has a positive mean, and
+;;   3. its deflated Sharpe, charged for the 3 arms compared, is > 0.
+;; Otherwise the deploy rule is flat. The final test also reports, as
+;; if traded and clearly marked, the hybrid full-fit champion, the hybrid
+;; full-fit best ungated rule, and the gp / llm full-fit champions.
+;; Writes out/v4/select.json.
+(require "lib/v4")
+(require "std/fs" all:)
+
+(define FOLDS (list "2021" "2022" "2023"))
+(define ARMS (list "gp" "llm" "hybrid"))
+(define (run f a) (json-parse (read-file (string-append "out/v4/run-" f "-" a ".json"))))
+(define (r3 x) (m-round x 3))
+(define (t-flat xs) (hash-ref (tune:gate xs (map (lambda (x) 0.0) xs) (hash "alpha" 0.05 "sense" "max")) "t"))
+
+(define (pooled arm key)
+  (apply append (map (lambda (f) (let ((v (hash-ref (run f arm) key))) (if v (hash-ref v "daily") (list)))) FOLDS)))
+(define (per-year arm key)
+  (map (lambda (f) (let* ((r (run f arm)) (v (hash-ref r key)))
+                     (list f (if v (hash-ref v "sum") 0.0)
+                           (let ((c (hash-ref r (if (string=? key "val-champion") "champion" "best")))) (if c (hash-ref c "rule") "flat")))))
+       FOLDS))
+(define (arm-row arm key)
+  (let ((d (pooled arm key)))
+    (hash "arm" arm "kind" key "sum" (r3 (m-sum d)) "mean" (m-mean d) "sharpe" (r3 (* V4-ANN (m-sharpe d)))
+          "sr-daily" (m-sharpe d) "t-vs-flat" (r3 (t-flat d)) "days" (length d) "per-year" (per-year arm key))))
+
+(define champ-rows (map (lambda (a) (arm-row a "val-champion")) ARMS))
+(define best-rows (map (lambda (a) (arm-row a "val-best")) ARMS))
+(define arm-srs (map (lambda (r) (hash-ref r "sr-daily")) champ-rows))
+(define hyb (pooled "hybrid" "val-champion"))
+(define hyb-defl (m-deflated hyb arm-srs))
+(define full-h (run "full" "hybrid"))
+(define has-champ (if (hash-ref full-h "champion") #t #f))
+(define trade (and has-champ (> (m-mean hyb) 0.0) (> (hash-ref hyb-defl "deflated") 0.0)))
+
+;; every candidate any fold-arm evaluated (GP, ES, single-feature probes,
+;; LLM proposals) is one trial
+(define all-runs (apply append (map (lambda (f) (map (lambda (a) (run f a)) ARMS)) (append FOLDS (list "full")))))
+(define all-trials (apply append (map (lambda (r) (hash-ref r "trials")) all-runs)))
+(define llm-props (foldl + 0 (map (lambda (r) (hash-ref r "llm-props")) all-runs)))
+(define llm-bad (foldl + 0 (map (lambda (r) (hash-ref r "llm-bad")) all-runs)))
+(define llm-kept (foldl + 0 (map (lambda (r) (hash-ref r "llm-kept")) all-runs)))
+(define kept (foldl + 0 (map (lambda (r) (hash-ref r "kept")) all-runs)))
+(define rolled (foldl + 0 (map (lambda (r) (hash-ref r "rolled")) all-runs)))
+(define calls (foldl + 0 (map (lambda (r) (hash-ref r "llm-calls")) all-runs)))
+
+(define (full-cfg arm key)
+  (let ((m (hash-ref (run "full" arm) key))) (if m m #f)))
+(define out
+  (hash "deploy" (hash "trade" trade "has-champion" has-champ
+                       "rule" (if (and trade has-champ) (hash-ref (hash-ref full-h "champion") "rule") "flat")
+                       "hybrid-val-mean" (m-mean hyb) "hybrid-val-deflated" (hash-ref hyb-defl "deflated")
+                       "hybrid-val-dsr" (hash-ref hyb-defl "dsr") "hybrid-val-sr0" (hash-ref hyb-defl "sr0"))
+        "as-if" (hash "hybrid-champion" (full-cfg "hybrid" "champion") "hybrid-best" (full-cfg "hybrid" "best")
+                      "gp-champion" (full-cfg "gp" "champion") "llm-champion" (full-cfg "llm" "champion"))
+        "val-champion" champ-rows "val-best" best-rows
+        "trials" (hash "candidates" (length all-trials) "candidate-sr-var" (m-var all-trials)
+                       "arms" 3 "arm-sr-var" (m-var arm-srs))
+        "counts" (hash "kept" kept "rolled" rolled "llm-props" llm-props "llm-bad" llm-bad "llm-kept" llm-kept "llm-calls" calls)))
+(write-file "out/v4/select.json" (json-encode out))
+(for-each (lambda (r) (display "V4S champion ") (display (hash->list (hash-remove r "sr-daily"))) (newline)) champ-rows)
+(for-each (lambda (r) (display "V4S best ") (display (hash->list (hash-remove r "sr-daily"))) (newline)) best-rows)
+(display "V4S hybrid deflated(N=3) ") (display (hash->list hyb-defl)) (newline)
+(display "V4S deploy ") (display (hash->list (hash-ref out "deploy"))) (newline)
+(display "V4S trials ") (display (hash->list (hash-ref out "trials"))) (newline)
+(display "V4S counts ") (display (hash->list (hash-ref out "counts"))) (newline)
+(display "V4_SELECT_OK") (newline)
