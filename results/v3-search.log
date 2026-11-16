@@ -1,0 +1,71 @@
+V3 loaded ms=44915
+V3 h4/trend/es fold=2021 is-sharpe=1.71 is-sum=2557.8 fills/yr=150.4 val-sum=-336.0 val-sharpe=-0.52
+V3 h4/trend/es fold=2022 is-sharpe=1.49 is-sum=2523.8 fills/yr=106.2 val-sum=1422.9 val-sharpe=1.69
+V3 h4/trend/es fold=2023 is-sharpe=0.49 is-sum=1511.7 fills/yr=10.9 val-sum=222.8 val-sharpe=0.29
+V3 h4/trend/es fold=full is-sharpe=0.36 is-sum=1276.7 fills/yr=33.9
+V3 h4/trend/nsga fold=2021 is-sharpe=1.69 is-sum=2329.1 fills/yr=159.6 val-sum=-815.9 val-sharpe=-1.38
+V3 h4/trend/nsga fold=2022 is-sharpe=1.29 is-sum=2537.6 fills/yr=122.9 val-sum=252.6 val-sharpe=0.26
+V3 h4/trend/nsga fold=2023 is-sharpe=0.31 is-sum=843.7 fills/yr=70.0 val-sum=-389.2 val-sharpe=-0.57
+V3 h4/trend/nsga fold=full is-sharpe=0.63 is-sum=2508.5 fills/yr=160.6
+V3 h4/donch/es fold=2021 is-sharpe=1.03 is-sum=1054.2 fills/yr=43.0 val-sum=51.7 val-sharpe=0.1
+V3 h4/donch/es fold=2022 is-sharpe=1.33 is-sum=2713.1 fills/yr=120.4 val-sum=1095.5 val-sharpe=1.07
+V3 h4/donch/es fold=2023 is-sharpe=1.19 is-sum=3879.8 fills/yr=84.0 val-sum=-1198.0 val-sharpe=-1.45
+V3 h4/donch/es fold=full is-sharpe=1.18 is-sum=4851.7 fills/yr=85.8
+V3 h4/donch/nsga fold=2021 is-sharpe=2.13 is-sum=3006.1 fills/yr=79.8 val-sum=-490.6 val-sharpe=-0.75
+V3 h4/donch/nsga fold=2022 is-sharpe=1.07 is-sum=1531.1 fills/yr=15.5 val-sum=-791.7 val-sharpe=-1.14
+V3 h4/donch/nsga fold=2023 is-sharpe=1.74 is-sum=5537.2 fills/yr=79.4 val-sum=-480.8 val-sharpe=-0.58
+V3 h4/donch/nsga fold=full is-sharpe=0.62 is-sum=1663.0 fills/yr=23.8
+V3 h4/tsmom/es fold=2021 is-sharpe=1.8 is-sum=1182.6 fills/yr=31.9 val-sum=154.4 val-sharpe=0.97
+V3 h4/tsmom/es fold=2022 is-sharpe=0.81 is-sum=916.7 fills/yr=19.4 val-sum=-500.3 val-sharpe=-0.95
+V3 h4/tsmom/es fold=2023 is-sharpe=1.47 is-sum=1675.0 fills/yr=12.6 val-sum=-20.2 val-sharpe=-0.16
+V3 h4/tsmom/es fold=full is-sharpe=0.82 is-sum=3030.9 fills/yr=193.9
+V3 h4/tsmom/nsga fold=2021 is-sharpe=1.11 is-sum=400.1 fills/yr=2.9 val-sum=14.6 val-sharpe=0.28
+V3 h4/tsmom/nsga fold=2022 is-sharpe=0.94 is-sum=749.7 fills/yr=11.0 val-sum=-24.1 val-sharpe=-0.09
+V3 h4/tsmom/nsga fold=2023 is-sharpe=1.12 is-sum=1905.4 fills/yr=59.1 val-sum=-349.2 val-sharpe=-0.9
+V3 h4/tsmom/nsga fold=full is-sharpe=0.48 is-sum=1216.0 fills/yr=28.5
+V3 h4/meanrev/es fold=2021 is-sharpe=0.85 is-sum=72.5 fills/yr=1.9 val-sum=0.0 val-sharpe=0.0
+V3 h4/meanrev/es fold=2022 is-sharpe=1.13 is-sum=214.2 fills/yr=1.9 val-sum=84.8 val-sharpe=1.46
+V3 h4/meanrev/es fold=2023 is-sharpe=0.0 is-sum=0.0 fills/yr=0.0 val-sum=0.0 val-sharpe=0.0
+V3 h4/meanrev/es fold=full is-sharpe=0.92 is-sum=1400.3 fills/yr=14.3
+V3 h4/meanrev/nsga fold=2021 is-sharpe=0.76 is-sum=39.3 fills/yr=1.0 val-sum=0.0 val-sharpe=0.0
+V3 h4/meanrev/nsga fold=2022 is-sharpe=0.85 is-sum=96.1 fills/yr=1.3 val-sum=56.9 val-sharpe=0.56
+V3 h4/meanrev/nsga fold=2023 is-sharpe=0.83 is-sum=570.5 fills/yr=4.4 val-sum=33.6 val-sharpe=0.33
+V3 h4/meanrev/nsga fold=full is-sharpe=0.73 is-sum=173.7 fills/yr=0.4
+V3 d1/trend/es fold=2021 is-sharpe=1.0 is-sum=762.6 fills/yr=3.4 val-sum=-560.0 val-sharpe=-1.24
+V3 d1/trend/es fold=2022 is-sharpe=0.59 is-sum=540.3 fills/yr=2.9 val-sum=840.0 val-sharpe=1.15
+V3 d1/trend/es fold=2023 is-sharpe=0.68 is-sum=1951.7 fills/yr=3.1 val-sum=-220.9 val-sharpe=-0.29
+V3 d1/trend/es fold=full is-sharpe=0.54 is-sum=2089.6 fills/yr=3.7
+V3 d1/trend/nsga fold=2021 is-sharpe=0.92 is-sum=1088.8 fills/yr=3.4 val-sum=-240.3 val-sharpe=-0.37
+V3 d1/trend/nsga fold=2022 is-sharpe=0.54 is-sum=780.3 fills/yr=11.0 val-sum=-102.1 val-sharpe=-0.13
+V3 d1/trend/nsga fold=2023 is-sharpe=0.68 is-sum=2156.7 fills/yr=1.7 val-sum=-427.2 val-sharpe=-0.52
+V3 d1/trend/nsga fold=full is-sharpe=0.56 is-sum=1801.1 fills/yr=8.3
+V3 d1/donch/es fold=2021 is-sharpe=0.97 is-sum=864.7 fills/yr=7.3 val-sum=-900.0 val-sharpe=-1.93
+V3 d1/donch/es fold=2022 is-sharpe=0.5 is-sum=679.2 fills/yr=1.3 val-sum=1666.4 val-sharpe=1.67
+V3 d1/donch/es fold=2023 is-sharpe=0.96 is-sum=2581.7 fills/yr=2.2 val-sum=98.6 val-sharpe=0.22
+V3 d1/donch/es fold=full is-sharpe=0.72 is-sum=2536.6 fills/yr=1.4
+V3 d1/donch/nsga fold=2021 is-sharpe=0.88 is-sum=703.6 fills/yr=4.4 val-sum=16.5 val-sharpe=0.03
+V3 d1/donch/nsga fold=2022 is-sharpe=0.49 is-sum=783.9 fills/yr=1.0 val-sum=1658.2 val-sharpe=1.57
+V3 d1/donch/nsga fold=2023 is-sharpe=0.87 is-sum=2442.2 fills/yr=1.2 val-sum=67.9 val-sharpe=0.1
+V3 d1/donch/nsga fold=full is-sharpe=0.77 is-sum=2285.7 fills/yr=1.5
+V3 d1/tsmom/es fold=2021 is-sharpe=1.37 is-sum=923.2 fills/yr=1.5 val-sum=266.5 val-sharpe=0.62
+V3 d1/tsmom/es fold=2022 is-sharpe=1.05 is-sum=1171.7 fills/yr=1.0 val-sum=974.8 val-sharpe=0.95
+V3 d1/tsmom/es fold=2023 is-sharpe=0.84 is-sum=2701.8 fills/yr=8.5 val-sum=-1007.0 val-sharpe=-1.22
+V3 d1/tsmom/es fold=full is-sharpe=0.74 is-sum=2224.4 fills/yr=16.5
+V3 d1/tsmom/nsga fold=2021 is-sharpe=1.14 is-sum=914.9 fills/yr=2.4 val-sum=-152.3 val-sharpe=-0.29
+V3 d1/tsmom/nsga fold=2022 is-sharpe=0.61 is-sum=84.3 fills/yr=0.6 val-sum=-289.5 val-sharpe=-1.47
+V3 d1/tsmom/nsga fold=2023 is-sharpe=0.74 is-sum=1114.8 fills/yr=2.9 val-sum=107.4 val-sharpe=0.55
+V3 d1/tsmom/nsga fold=full is-sharpe=0.65 is-sum=1007.5 fills/yr=6.4
+V3 d1/meanrev/es fold=2021 is-sharpe=1.4 is-sum=562.5 fills/yr=2.9 val-sum=-20.1 val-sharpe=-0.15
+V3 d1/meanrev/es fold=2022 is-sharpe=0.34 is-sum=219.6 fills/yr=3.9 val-sum=371.1 val-sharpe=0.96
+V3 d1/meanrev/es fold=2023 is-sharpe=0.63 is-sum=755.8 fills/yr=3.6 val-sum=28.8 val-sharpe=0.09
+V3 d1/meanrev/es fold=full is-sharpe=1.25 is-sum=1181.8 fills/yr=3.5
+V3 d1/meanrev/nsga fold=2021 is-sharpe=1.08 is-sum=187.8 fills/yr=1.9 val-sum=0.0 val-sharpe=0.0
+V3 d1/meanrev/nsga fold=2022 is-sharpe=0.58 is-sum=599.0 fills/yr=14.8 val-sum=-139.3 val-sharpe=-0.24
+V3 d1/meanrev/nsga fold=2023 is-sharpe=0.52 is-sum=281.5 fills/yr=1.9 val-sum=354.7 val-sharpe=1.93
+V3 d1/meanrev/nsga fold=full is-sharpe=0.73 is-sum=408.2 fills/yr=1.5
+V3 searches=64 trials=8192 ms=1000747
+V3_SEARCH_OK
+
+real	23m42.689s
+user	82m32.023s
+sys	21m52.606s
