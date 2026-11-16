@@ -135,7 +135,7 @@ def main():
         out = f"{OUT}/{p.lower()}-{tag}-h1.csv"
         with open(out, "w") as f:
             f.write("time_utc,bid,ask,mid\n")
-                for t, x, y in rows:
+            for t, x, y in rows:
                 f.write(f"{dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime('%Y-%m-%dT%H:00Z')},{x:.5f},{y:.5f},{(x + y) / 2:.6f}\n")
         subprocess.run([sys.executable, "scripts/v3-bars.py", out, f"{OUT}/{p.lower()}-{tag}"], check=True)
         print(f"FETCH_OK {p} {tag} h1-rows={len(rows)} scale={sc:g} from={rows[0][0]} to={rows[-1][0]}", flush=True)
