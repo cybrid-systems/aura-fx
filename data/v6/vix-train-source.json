@@ -1,0 +1,7 @@
+{
+ "source": "datasets/finance-vix CBOE close",
+ "url": "https://raw.githubusercontent.com/datasets/finance-vix/main/data/vix-daily.csv",
+ "from": "2013-01-02",
+ "to": "2023-12-29",
+ "days": 2780
+}
