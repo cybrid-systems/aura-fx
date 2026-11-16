@@ -50,15 +50,26 @@ def fetch(p, y, m, side):
     path = f"{RAW}/{p}-{y}-{m:02d}-{side}.bi5"
     url = URL.format(p=p, y=y, m=m - 1, side=side)
     err = None
+    # Dukascopy frequently closes CPython urllib SSL mid-handshake
+    # (UNEXPECTED_EOF_WHILE_READING). curl retries more reliably.
     for attempt in range(30):
         try:
-            data = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=60).read()
-            if data:
-                open(path + ".tmp", "wb").write(data)
+            r = subprocess.run(
+                ["curl", "-fsS", "-A", "Mozilla/5.0", "--max-time", "45",
+                 "--retry", "2", "--retry-delay", "1", "-o", path + ".tmp", url],
+                capture_output=True, text=True,
+            )
+            if r.returncode == 0 and os.path.exists(path + ".tmp") and os.path.getsize(path + ".tmp") > 0:
                 os.replace(path + ".tmp", path)
                 return path
+            err = r.stderr.strip() or f"curl exit {r.returncode}"
         except Exception as e:
             err = e
+        try:
+            if os.path.exists(path + ".tmp"):
+                os.remove(path + ".tmp")
+        except OSError:
+            pass
         time.sleep(1 + attempt % 5)
     raise RuntimeError(f"failed {url}: {err}")
 
@@ -83,10 +94,11 @@ def main():
     jobs = [(p, y, m, s) for p in pairs for y, m in months(a, b) for s in ("BID", "ASK")]
     t0 = time.time()
     done = 0
+    print(f"FETCH_START jobs={len(jobs)} pairs={pairs} {a}..{b}", flush=True)
     with ThreadPoolExecutor(8) as ex:
         for _ in ex.map(lambda j: fetch(*j), jobs):
             done += 1
-            if done % 100 == 0:
+            if done % 50 == 0 or done == len(jobs):
                 print(f"fetched {done}/{len(jobs)} {time.time() - t0:.0f}s", flush=True)
     for p in pairs:
         scale = 1e3 if p.endswith("JPY") else 1e5
